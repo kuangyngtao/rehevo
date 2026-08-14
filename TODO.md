@@ -15,12 +15,12 @@
 
 ## 当前事实
 
-- [x] 默认单测通过：197 个测试，0 失败，0 跳过；集成测试通过：21 个测试，0 失败，0 跳过。
+- [x] 默认单测通过：200 个测试，0 失败，0 跳过；集成测试通过：21 个测试，0 失败，0 跳过。
 - [x] 前端生产构建通过。
 - [x] Actuator 已暴露 `health`、`info`、`metrics`、`prometheus`。
 - [x] 语音 Handler 已记录部分 ASR、LLM、TTS、Turn 指标。
 - [x] 测试基线可信：默认单测与需要 Redis/Spring 上下文的集成测试已分组，两组均无跳过项。
-- [ ] RAG 运行可观测：知识库模块当前没有专属 Micrometer 指标。
+- [x] RAG 运行可观测：向量化、主/兜底检索、改写和回答已写入专属 Micrometer 指标；本轮真实查询已在 Prometheus 验证。
 - [ ] 监控闭环：仓库当前没有 `observability/`、Prometheus 抓取配置、Grafana Dashboard 和告警规则。
 - [ ] RAG 来源可追溯：`QueryResponse` 当前只有答案、知识库 ID 和名称，没有来源片段与相似度。
 - [ ] 实时 Turn 有明确协议：当前没有独立 `VoiceTurnCoordinator`，也没有统一的 `turnId/eventId/sequence` 约束。
@@ -47,18 +47,20 @@
 
 ### 0.2 建立指标契约
 
-- [ ] 盘点 Spring AI 2.0 已提供的模型、Token、工具和向量库 Observation，先复用框架指标。
-- [ ] 新建 `common/metrics/`，集中管理指标名称、低基数标签和记录入口。
-- [ ] 统一现有语音指标命名，并补齐：活跃会话、ASR ready、首音频、重连、丢音频和取消。
-- [ ] 在 `AbstractStreamConsumer` 补齐任务吞吐、处理耗时、重试、恢复、Pending 年龄和 Stream backlog。
-- [ ] 为 RAG 增加运行指标，但不改检索算法：
-  - [ ] 向量化成功/失败、耗时和 Chunk 数；
-  - [ ] 主检索/兜底检索耗时、命中数和无结果；
-  - [ ] Query rewrite 成功/失败/跳过；
-  - [ ] 回答耗时和失败。
-- [ ] 为指标增加测试，验证名称、单位、状态口径和标签白名单。
+- [x] 盘点 Spring AI 2.0 已提供的模型、Token、工具和向量库 Observation，复用框架 Observation；业务指标仅补框架未覆盖的语音、Stream 和 RAG 口径（见 `METRICS_CONTRACT.md`）。
+- [x] 新建 `common/metrics/`，集中管理指标名称、低基数标签和记录入口。
+- [x] 统一现有语音指标命名，并补齐：活跃会话、ASR ready、首音频、重连、丢音频和取消。
+- [x] 在 `AbstractStreamConsumer` 补齐任务吞吐、处理耗时、重试、恢复、Pending idle 年龄和 Redis consumer group backlog。
+- [x] 为 RAG 增加运行指标，但不改检索算法：
+  - [x] 向量化成功/失败、耗时和 Chunk 数；
+  - [x] 主检索/兜底检索耗时、命中数和无结果；
+  - [x] Query rewrite 成功/失败/跳过；
+  - [x] 回答耗时和失败。
+- [x] 为指标增加测试，验证名称、单位、状态口径和标签白名单。
 
 标签红线：`sessionId`、`turnId`、`userId`、`knowledgeBaseId`、问题、Prompt、文档名和原文只能进入日志或 Trace，不能进入 Prometheus 标签。
+
+本轮验证：`METRICS_CONTRACT.md` 固化指标契约；默认测试 200 个、集成测试 21 个均通过；真实知识库查询返回 `Orchid-417`，Prometheus 已出现 `app_rag_retrieval_seconds` 与 `app_rag_answer_seconds`。Dashboard 面板和告警规则归入 0.3。
 
 完成门槛：每项指标都有名称、类型、单位、成功/失败口径、允许标签、Dashboard 面板和对应告警；不出现无界标签。
 

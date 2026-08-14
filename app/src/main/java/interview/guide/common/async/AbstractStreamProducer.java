@@ -1,6 +1,7 @@
 package interview.guide.common.async;
 
 import interview.guide.common.constant.AsyncTaskStreamConstants;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -14,9 +15,15 @@ import java.util.Map;
 public abstract class AbstractStreamProducer<T> {
 
     private final RedisService redisService;
+    private final ApplicationMetrics applicationMetrics;
 
     protected AbstractStreamProducer(RedisService redisService) {
+        this(redisService, new ApplicationMetrics(null));
+    }
+
+    protected AbstractStreamProducer(RedisService redisService, ApplicationMetrics applicationMetrics) {
         this.redisService = redisService;
+        this.applicationMetrics = applicationMetrics;
     }
 
     protected void sendTask(T payload) {
@@ -28,10 +35,12 @@ public abstract class AbstractStreamProducer<T> {
             );
             log.info("{}任务已发送到Stream: {}, messageId={}",
                 taskDisplayName(), payloadIdentifier(payload), messageId);
+            applicationMetrics.recordStreamEnqueued(streamKey(), ApplicationMetrics.Outcome.SUCCESS);
         } catch (Exception e) {
             log.error("发送{}任务失败: {}, error={}",
                 taskDisplayName(), payloadIdentifier(payload), e.getMessage(), e);
             onSendFailed(payload, "任务入队失败: " + e.getMessage());
+            applicationMetrics.recordStreamEnqueued(streamKey(), ApplicationMetrics.Outcome.FAILURE);
         }
     }
 

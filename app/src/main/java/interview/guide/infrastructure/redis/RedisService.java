@@ -14,8 +14,11 @@ import org.redisson.api.RStream;
 import org.redisson.api.RedissonClient;
 import org.redisson.api.options.KeysScanOptions;
 import org.redisson.api.stream.AutoClaimResult;
+import org.redisson.api.stream.PendingEntry;
+import org.redisson.api.stream.PendingResult;
 import org.redisson.api.stream.StreamAddArgs;
 import org.redisson.api.stream.StreamCreateGroupArgs;
+import org.redisson.api.stream.StreamGroup;
 import org.redisson.api.stream.StreamMessageId;
 import org.redisson.api.stream.StreamReadGroupArgs;
 import org.redisson.client.codec.StringCodec;
@@ -465,6 +468,48 @@ public class RedisService {
     public long streamLen(String streamKey) {
         RStream<String, String> stream = redissonClient.getStream(streamKey, StringCodec.INSTANCE);
         return stream.size();
+    }
+
+    /**
+     * 获取指定消费者组的队列观测快照。
+     *
+     * <p>{@code backlog} 使用 Redis Group 的 lag；{@code oldestPendingIdleMillis}
+     * 表示最久未被确认 Pending 消息的 idle 时长，而不是业务创建时间。</p>
+     */
+    public StreamGroupMetrics streamGroupMetrics(String streamKey, String groupName) {
+        try {
+            RStream<String, String> stream = redissonClient.getStream(streamKey, StringCodec.INSTANCE);
+            long backlog = stream.listGroups().stream()
+                .filter(group -> groupName.equals(group.getName()))
+                .mapToLong(StreamGroup::getLag)
+                .findFirst()
+                .orElse(0L);
+            PendingResult pendingInfo = stream.getPendingInfo(groupName);
+            long pending = pendingInfo == null ? 0L : pendingInfo.getTotal();
+            long oldestPendingIdleMillis = 0L;
+            if (pending > 0) {
+                List<PendingEntry> entries = stream.listPending(
+                    groupName,
+                    StreamMessageId.MIN,
+                    StreamMessageId.MAX,
+                    1
+                );
+                if (entries != null && !entries.isEmpty()) {
+                    oldestPendingIdleMillis = Math.max(0L, entries.getFirst().getIdleTime());
+                }
+            }
+            return new StreamGroupMetrics(Math.max(0L, backlog), pending, oldestPendingIdleMillis);
+        } catch (Exception e) {
+            log.debug("Failed to read Redis Stream metrics: stream={}, group={}, error={}",
+                streamKey, groupName, e.getMessage());
+            return StreamGroupMetrics.empty();
+        }
+    }
+
+    public record StreamGroupMetrics(long backlog, long pending, long oldestPendingIdleMillis) {
+        public static StreamGroupMetrics empty() {
+            return new StreamGroupMetrics(0L, 0L, 0L);
+        }
     }
 
     // ==================== 原子计数器 ====================

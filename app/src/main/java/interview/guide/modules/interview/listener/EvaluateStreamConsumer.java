@@ -4,6 +4,7 @@ import interview.guide.common.async.AbstractStreamConsumer;
 import interview.guide.common.ai.LlmProviderRegistry;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
 import interview.guide.common.model.AsyncTaskStatus;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.interview.model.InterviewAnswerEntity;
 import interview.guide.modules.interview.model.InterviewQuestionDTO;
@@ -39,13 +40,14 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
 
     public EvaluateStreamConsumer(
         RedisService redisService,
+        ApplicationMetrics applicationMetrics,
         InterviewSessionRepository sessionRepository,
         AnswerEvaluationService evaluationService,
         InterviewPersistenceService persistenceService,
         ObjectMapper objectMapper,
         LlmProviderRegistry llmProviderRegistry
     ) {
-        super(redisService);
+        super(redisService, applicationMetrics);
         this.sessionRepository = sessionRepository;
         this.evaluationService = evaluationService;
         this.persistenceService = persistenceService;

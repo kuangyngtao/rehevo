@@ -2,6 +2,7 @@ package interview.guide.modules.knowledgebase.listener;
 
 import interview.guide.common.async.AbstractStreamProducer;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.knowledgebase.model.VectorStatus;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
@@ -22,8 +23,12 @@ public class VectorizeStreamProducer extends AbstractStreamProducer<VectorizeStr
 
     record VectorizeTaskPayload(Long kbId, String content) {}
 
-    public VectorizeStreamProducer(RedisService redisService, KnowledgeBaseRepository knowledgeBaseRepository) {
-        super(redisService);
+    public VectorizeStreamProducer(
+        RedisService redisService,
+        ApplicationMetrics applicationMetrics,
+        KnowledgeBaseRepository knowledgeBaseRepository
+    ) {
+        super(redisService, applicationMetrics);
         this.knowledgeBaseRepository = knowledgeBaseRepository;
     }
 

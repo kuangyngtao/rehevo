@@ -3,6 +3,7 @@ package interview.guide.modules.interview.listener;
 import interview.guide.common.async.AbstractStreamProducer;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
 import interview.guide.common.model.AsyncTaskStatus;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.common.transaction.TransactionalExecutor;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.interview.repository.InterviewSessionRepository;
@@ -24,10 +25,11 @@ public class EvaluateStreamProducer extends AbstractStreamProducer<String> {
 
     public EvaluateStreamProducer(
         RedisService redisService,
+        ApplicationMetrics applicationMetrics,
         InterviewSessionRepository sessionRepository,
         TransactionalExecutor transactionalExecutor
     ) {
-        super(redisService);
+        super(redisService, applicationMetrics);
         this.sessionRepository = sessionRepository;
         this.transactionalExecutor = transactionalExecutor;
     }

@@ -3,6 +3,7 @@ package interview.guide.modules.voiceinterview.listener;
 import interview.guide.common.async.AbstractStreamConsumer;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
 import interview.guide.common.model.AsyncTaskStatus;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.voiceinterview.repository.VoiceInterviewSessionRepository;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewEvaluationService;
@@ -26,11 +27,12 @@ public class VoiceEvaluateStreamConsumer extends AbstractStreamConsumer<VoiceEva
 
     public VoiceEvaluateStreamConsumer(
         RedisService redisService,
+        ApplicationMetrics applicationMetrics,
         VoiceInterviewService voiceInterviewService,
         VoiceInterviewEvaluationService evaluationService,
         VoiceInterviewSessionRepository sessionRepository
     ) {
-        super(redisService);
+        super(redisService, applicationMetrics);
         this.voiceInterviewService = voiceInterviewService;
         this.evaluationService = evaluationService;
         this.sessionRepository = sessionRepository;

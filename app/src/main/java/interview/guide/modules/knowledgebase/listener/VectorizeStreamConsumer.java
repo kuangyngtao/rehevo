@@ -2,6 +2,7 @@ package interview.guide.modules.knowledgebase.listener;
 
 import interview.guide.common.async.AbstractStreamConsumer;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.knowledgebase.model.VectorStatus;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
@@ -25,10 +26,11 @@ public class VectorizeStreamConsumer extends AbstractStreamConsumer<VectorizeStr
 
     public VectorizeStreamConsumer(
         RedisService redisService,
+        ApplicationMetrics applicationMetrics,
         KnowledgeBaseVectorService vectorService,
         KnowledgeBaseRepository knowledgeBaseRepository
     ) {
-        super(redisService);
+        super(redisService, applicationMetrics);
         this.vectorService = vectorService;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
     }

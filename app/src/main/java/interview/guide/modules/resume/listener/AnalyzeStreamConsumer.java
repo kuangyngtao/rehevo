@@ -3,6 +3,7 @@ package interview.guide.modules.resume.listener;
 import interview.guide.common.async.AbstractStreamConsumer;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
 import interview.guide.common.model.AsyncTaskStatus;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.interview.model.ResumeAnalysisResponse;
 import interview.guide.modules.resume.model.ResumeEntity;
@@ -29,11 +30,12 @@ public class AnalyzeStreamConsumer extends AbstractStreamConsumer<AnalyzeStreamC
 
     public AnalyzeStreamConsumer(
         RedisService redisService,
+        ApplicationMetrics applicationMetrics,
         ResumeGradingService gradingService,
         ResumePersistenceService persistenceService,
         ResumeRepository resumeRepository
     ) {
-        super(redisService);
+        super(redisService, applicationMetrics);
         this.gradingService = gradingService;
         this.persistenceService = persistenceService;
         this.resumeRepository = resumeRepository;

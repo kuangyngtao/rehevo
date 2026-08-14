@@ -1,6 +1,7 @@
 package interview.guide.common.async;
 
 import interview.guide.common.constant.AsyncTaskStreamConstants;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -14,17 +15,27 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 public abstract class AbstractStreamConsumer<T> {
 
     private final RedisService redisService;
+    private final ApplicationMetrics applicationMetrics;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong streamBacklog = new AtomicLong();
+    private final AtomicLong streamPending = new AtomicLong();
+    private final AtomicLong oldestPendingIdleMillis = new AtomicLong();
     private ExecutorService executorService;
     private String consumerName;
 
     protected AbstractStreamConsumer(RedisService redisService) {
+        this(redisService, new ApplicationMetrics(null));
+    }
+
+    protected AbstractStreamConsumer(RedisService redisService, ApplicationMetrics applicationMetrics) {
         this.redisService = redisService;
+        this.applicationMetrics = applicationMetrics;
     }
 
     @PostConstruct
@@ -45,6 +56,10 @@ public abstract class AbstractStreamConsumer<T> {
         );
 
         running.set(true);
+        applicationMetrics.registerStreamGauges(
+            streamKey(), streamBacklog, streamPending, oldestPendingIdleMillis
+        );
+        refreshStreamMetrics();
         executorService.submit(this::startConsumer);
         log.info("{} consumer started: consumerName={}", taskDisplayName(), consumerName);
     }
@@ -88,11 +103,14 @@ public abstract class AbstractStreamConsumer<T> {
                     break;
                 }
                 log.error("Failed to consume message", e);
+            } finally {
+                refreshStreamMetrics();
             }
         }
     }
 
     private void processMessage(StreamMessageId messageId, Map<String, String> data) {
+        long startNanos = System.nanoTime();
         T payload;
         try {
             payload = parsePayload(messageId, data);
@@ -101,11 +119,15 @@ public abstract class AbstractStreamConsumer<T> {
             log.warn("Failed to parse {} stream message, ack and discard: messageId={}, fields={}",
                 taskDisplayName(), messageId, fields, e);
             ackMessage(messageId);
+            applicationMetrics.recordStreamTask(streamKey(), ApplicationMetrics.Outcome.DISCARDED,
+                System.nanoTime() - startNanos);
             return;
         }
 
         if (payload == null) {
             ackMessage(messageId);
+            applicationMetrics.recordStreamTask(streamKey(), ApplicationMetrics.Outcome.DISCARDED,
+                System.nanoTime() - startNanos);
             return;
         }
 
@@ -116,6 +138,8 @@ public abstract class AbstractStreamConsumer<T> {
         try {
             if (shouldSkip(payload)) {
                 ackMessage(messageId);
+                applicationMetrics.recordStreamTask(streamKey(), ApplicationMetrics.Outcome.SKIPPED,
+                    System.nanoTime() - startNanos);
                 log.info("{} task skipped: {}", taskDisplayName(), payloadIdentifier(payload));
                 return;
             }
@@ -123,18 +147,32 @@ public abstract class AbstractStreamConsumer<T> {
             processBusiness(payload);
             markCompleted(payload);
             ackMessage(messageId);
+            applicationMetrics.recordStreamTask(streamKey(),
+                retryCount > 0 ? ApplicationMetrics.Outcome.RECOVERED : ApplicationMetrics.Outcome.SUCCESS,
+                System.nanoTime() - startNanos);
             log.info("{} task completed: {}", taskDisplayName(), payloadIdentifier(payload));
         } catch (Exception e) {
             log.error("{} task failed: {}", taskDisplayName(), payloadIdentifier(payload), e);
             if (retryCount < AsyncTaskStreamConstants.MAX_RETRY_COUNT) {
                 retryMessage(payload, retryCount + 1);
+                applicationMetrics.recordStreamTask(streamKey(), ApplicationMetrics.Outcome.RETRY,
+                    System.nanoTime() - startNanos);
             } else {
                 markFailed(payload, truncateError(
                     taskDisplayName() + " failed after retry " + retryCount + ": " + e.getMessage()
                 ));
+                applicationMetrics.recordStreamTask(streamKey(), ApplicationMetrics.Outcome.FAILURE,
+                    System.nanoTime() - startNanos);
             }
             ackMessage(messageId);
         }
+    }
+
+    private void refreshStreamMetrics() {
+        RedisService.StreamGroupMetrics metrics = redisService.streamGroupMetrics(streamKey(), groupName());
+        streamBacklog.set(metrics.backlog());
+        streamPending.set(metrics.pending());
+        oldestPendingIdleMillis.set(metrics.oldestPendingIdleMillis());
     }
 
     protected int parseRetryCount(Map<String, String> data) {

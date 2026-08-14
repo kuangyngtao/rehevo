@@ -3,6 +3,7 @@ package interview.guide.modules.resume.listener;
 import interview.guide.common.async.AbstractStreamProducer;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
 import interview.guide.common.model.AsyncTaskStatus;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.common.transaction.TransactionalExecutor;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.resume.repository.ResumeRepository;
@@ -26,10 +27,11 @@ public class AnalyzeStreamProducer extends AbstractStreamProducer<AnalyzeStreamP
 
     public AnalyzeStreamProducer(
         RedisService redisService,
+        ApplicationMetrics applicationMetrics,
         ResumeRepository resumeRepository,
         TransactionalExecutor transactionalExecutor
     ) {
-        super(redisService);
+        super(redisService, applicationMetrics);
         this.resumeRepository = resumeRepository;
         this.transactionalExecutor = transactionalExecutor;
     }

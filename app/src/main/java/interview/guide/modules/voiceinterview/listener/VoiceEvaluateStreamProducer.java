@@ -3,6 +3,7 @@ package interview.guide.modules.voiceinterview.listener;
 import interview.guide.common.async.AbstractStreamProducer;
 import interview.guide.common.constant.AsyncTaskStreamConstants;
 import interview.guide.common.model.AsyncTaskStatus;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.common.transaction.TransactionalExecutor;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewService;
@@ -23,9 +24,10 @@ public class VoiceEvaluateStreamProducer extends AbstractStreamProducer<String> 
     private final TransactionalExecutor transactionalExecutor;
 
     public VoiceEvaluateStreamProducer(RedisService redisService,
+                                       ApplicationMetrics applicationMetrics,
                                        @Lazy VoiceInterviewService voiceInterviewService,
                                        TransactionalExecutor transactionalExecutor) {
-        super(redisService);
+        super(redisService, applicationMetrics);
         this.voiceInterviewService = voiceInterviewService;
         this.transactionalExecutor = transactionalExecutor;
     }

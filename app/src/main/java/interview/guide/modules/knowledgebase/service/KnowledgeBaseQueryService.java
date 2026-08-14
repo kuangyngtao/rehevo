@@ -4,6 +4,7 @@ import interview.guide.common.ai.LlmProviderRegistry;
 import interview.guide.common.ai.PromptSecurityConstants;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.modules.knowledgebase.model.QueryRequest;
 import interview.guide.modules.knowledgebase.model.QueryResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ public class KnowledgeBaseQueryService {
     private final KnowledgeBaseVectorService vectorService;
     private final KnowledgeBaseListService listService;
     private final KnowledgeBaseCountService countService;
+    private final ApplicationMetrics applicationMetrics;
     private final PromptTemplate systemPromptTemplate;
     private final PromptTemplate userPromptTemplate;
     private final PromptTemplate rewritePromptTemplate;
@@ -60,12 +62,14 @@ public class KnowledgeBaseQueryService {
             KnowledgeBaseVectorService vectorService,
             KnowledgeBaseListService listService,
             KnowledgeBaseCountService countService,
+            ApplicationMetrics applicationMetrics,
             KnowledgeBaseQueryProperties queryProperties,
             ResourceLoader resourceLoader) throws IOException {
         this.llmProviderRegistry = llmProviderRegistry;
         this.vectorService = vectorService;
         this.listService = listService;
         this.countService = countService;
+        this.applicationMetrics = applicationMetrics;
         this.systemPromptTemplate = new PromptTemplate(
             resourceLoader.getResource(queryProperties.getSystemPromptPath())
                 .getContentAsString(StandardCharsets.UTF_8)
@@ -110,8 +114,12 @@ public class KnowledgeBaseQueryService {
      * @return AI回答
      */
     public String answerQuestion(List<Long> knowledgeBaseIds, String question) {
+        long startNanos = System.nanoTime();
         log.info("收到知识库提问: kbIds={}, question={}", knowledgeBaseIds, question);
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || normalizeQuestion(question).isBlank()) {
+            applicationMetrics.recordRagAnswer(
+                System.nanoTime() - startNanos, ApplicationMetrics.Interaction.SYNC, ApplicationMetrics.Outcome.SKIPPED
+            );
             return NO_RESULT_RESPONSE;
         }
 
@@ -121,6 +129,9 @@ public class KnowledgeBaseQueryService {
         List<Document> relevantDocs = retrieveRelevantDocs(queryContext, knowledgeBaseIds);
 
         if (!hasEffectiveHit(relevantDocs)) {
+            applicationMetrics.recordRagAnswer(
+                System.nanoTime() - startNanos, ApplicationMetrics.Interaction.SYNC, ApplicationMetrics.Outcome.SKIPPED
+            );
             return NO_RESULT_RESPONSE;
         }
 
@@ -140,10 +151,16 @@ public class KnowledgeBaseQueryService {
             answer = normalizeAnswer(answer);
 
             log.info("知识库问答完成: kbIds={}", knowledgeBaseIds);
+            applicationMetrics.recordRagAnswer(
+                System.nanoTime() - startNanos, ApplicationMetrics.Interaction.SYNC, ApplicationMetrics.Outcome.SUCCESS
+            );
             return answer;
 
         } catch (Exception e) {
             log.error("知识库问答失败: {}", e.getMessage(), e);
+            applicationMetrics.recordRagAnswer(
+                System.nanoTime() - startNanos, ApplicationMetrics.Interaction.SYNC, ApplicationMetrics.Outcome.FAILURE
+            );
             throw new BusinessException(ErrorCode.KNOWLEDGE_BASE_QUERY_FAILED, "知识库查询失败：" + e.getMessage());
         }
     }
@@ -202,9 +219,13 @@ public class KnowledgeBaseQueryService {
      * @return 流式响应
      */
     public Flux<String> answerQuestionStream(List<Long> knowledgeBaseIds, String question, List<Message> history) {
+        long startNanos = System.nanoTime();
         log.info("收到知识库流式提问: kbIds={}, question={}, historySize={}", knowledgeBaseIds, question,
                 history != null ? history.size() : 0);
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || normalizeQuestion(question).isBlank()) {
+            applicationMetrics.recordRagAnswer(
+                System.nanoTime() - startNanos, ApplicationMetrics.Interaction.STREAM, ApplicationMetrics.Outcome.SKIPPED
+            );
             return Flux.just(NO_RESULT_RESPONSE);
         }
 
@@ -218,6 +239,9 @@ public class KnowledgeBaseQueryService {
             List<Document> relevantDocs = retrieveRelevantDocs(queryContext, knowledgeBaseIds);
 
             if (!hasEffectiveHit(relevantDocs)) {
+                applicationMetrics.recordRagAnswer(
+                    System.nanoTime() - startNanos, ApplicationMetrics.Interaction.STREAM, ApplicationMetrics.Outcome.SKIPPED
+                );
                 return Flux.just(NO_RESULT_RESPONSE);
             }
 
@@ -244,13 +268,28 @@ public class KnowledgeBaseQueryService {
 
             log.info("开始流式输出知识库回答(探测窗口): kbIds={}", knowledgeBaseIds);
             return normalizeStreamOutput(responseFlux)
-                .doOnComplete(() -> log.info("流式输出完成: kbIds={}", knowledgeBaseIds))
+                .doOnComplete(() -> {
+                    applicationMetrics.recordRagAnswer(
+                        System.nanoTime() - startNanos,
+                        ApplicationMetrics.Interaction.STREAM,
+                        ApplicationMetrics.Outcome.SUCCESS
+                    );
+                    log.info("流式输出完成: kbIds={}", knowledgeBaseIds);
+                })
                 .onErrorResume(e -> {
+                    applicationMetrics.recordRagAnswer(
+                        System.nanoTime() - startNanos,
+                        ApplicationMetrics.Interaction.STREAM,
+                        ApplicationMetrics.Outcome.FAILURE
+                    );
                     log.error("流式输出失败: kbIds={}, error={}", knowledgeBaseIds, e.getMessage(), e);
                     return Flux.just("【错误】知识库查询失败：AI服务暂时不可用，请稍后重试。");
                 });
 
         } catch (Exception e) {
+            applicationMetrics.recordRagAnswer(
+                System.nanoTime() - startNanos, ApplicationMetrics.Interaction.STREAM, ApplicationMetrics.Outcome.FAILURE
+            );
             log.error("知识库流式问答失败: {}", e.getMessage(), e);
             return Flux.just("【错误】知识库查询失败：" + e.getMessage());
         }
@@ -313,6 +352,7 @@ public class KnowledgeBaseQueryService {
 //    改写
     private String rewriteQuestion(String question, List<Message> history) {
         if (!rewriteEnabled || question.isBlank()) {
+            applicationMetrics.recordRagRewrite(ApplicationMetrics.Outcome.SKIPPED);
             return question;
         }
         try {
@@ -325,12 +365,15 @@ public class KnowledgeBaseQueryService {
                 .call()
                 .content();
             if (rewritten == null || rewritten.isBlank()) {
+                applicationMetrics.recordRagRewrite(ApplicationMetrics.Outcome.FAILURE);
                 return question;
             }
             String normalized = rewritten.trim();
+            applicationMetrics.recordRagRewrite(ApplicationMetrics.Outcome.SUCCESS);
             log.info("Query rewrite: origin='{}', rewritten='{}', historySize={}", question, normalized, history.size());
             return normalized;
         } catch (Exception e) {
+            applicationMetrics.recordRagRewrite(ApplicationMetrics.Outcome.FAILURE);
             log.warn("Query rewrite 失败，使用原问题继续检索: {}", e.getMessage());
             return question;
         }

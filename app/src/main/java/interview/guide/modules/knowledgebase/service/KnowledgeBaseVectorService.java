@@ -2,6 +2,7 @@ package interview.guide.modules.knowledgebase.service;
 
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
+import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.common.transaction.TransactionalExecutor;
 import interview.guide.modules.knowledgebase.repository.VectorRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -38,22 +39,25 @@ public class KnowledgeBaseVectorService {
     private final TextSplitter textSplitter;
     private final VectorRepository vectorRepository;
     private final TransactionalExecutor transactionalExecutor;
+    private final ApplicationMetrics applicationMetrics;
 
     @Autowired
     public KnowledgeBaseVectorService(
         VectorStore vectorStore,
         VectorRepository vectorRepository,
-        TransactionalExecutor transactionalExecutor
+        TransactionalExecutor transactionalExecutor,
+        ApplicationMetrics applicationMetrics
     ) {
         this.vectorStore = vectorStore;
         this.vectorRepository = vectorRepository;
         this.transactionalExecutor = transactionalExecutor;
+        this.applicationMetrics = applicationMetrics;
         // 使用 TokenTextSplitter 默认配置，每个 chunk 约 800 tokens，基于标点边界切分（无重叠）
         this.textSplitter = TokenTextSplitter.builder().build();
     }
 
     KnowledgeBaseVectorService(VectorStore vectorStore, VectorRepository vectorRepository) {
-        this(vectorStore, vectorRepository, null);
+        this(vectorStore, vectorRepository, null, new ApplicationMetrics(null));
     }
 
     /**
@@ -62,7 +66,9 @@ public class KnowledgeBaseVectorService {
      * @param content 知识库文本内容
      */
     public void vectorizeAndStore(Long knowledgeBaseId, String content) {
+        long startNanos = System.nanoTime();
         String jobId = null;
+        int totalChunks = 0;
         try {
             if (knowledgeBaseId == null) {
                 throw new IllegalArgumentException("knowledgeBaseId不能为空");
@@ -82,7 +88,7 @@ public class KnowledgeBaseVectorService {
             applyPendingMetadata(chunks, knowledgeBaseId, jobId);
 
             // 3. 分批向量化并存储（阿里云 DashScope API 限制 batch size <= 10）
-            int totalChunks = chunks.size();
+            totalChunks = chunks.size();
             int batchCount = (totalChunks + MAX_BATCH_SIZE - 1) / MAX_BATCH_SIZE; // 向上取整
             log.info("开始分批向量化: 总共 {} 个chunks，分 {} 批处理，每批最多 {} 个",
                     totalChunks, batchCount, MAX_BATCH_SIZE);
@@ -96,10 +102,16 @@ public class KnowledgeBaseVectorService {
             activateVectorJob(knowledgeBaseId, jobId);
             log.info("知识库向量化完成: kbId={}, jobId={}, chunks={}, batches={}",
                     knowledgeBaseId, jobId, totalChunks, batchCount);
+            applicationMetrics.recordRagVectorization(
+                System.nanoTime() - startNanos, totalChunks, ApplicationMetrics.Outcome.SUCCESS
+            );
         } catch (Exception e) {
             cleanupPendingVectorJob(knowledgeBaseId, jobId);
             log.error("向量化知识库失败: kbId={}, jobId={}, error={}",
                 knowledgeBaseId, jobId, e.getMessage(), e);
+            applicationMetrics.recordRagVectorization(
+                System.nanoTime() - startNanos, totalChunks, ApplicationMetrics.Outcome.FAILURE
+            );
             throw new BusinessException(ErrorCode.KNOWLEDGE_BASE_VECTORIZATION_FAILED,
                 "向量化知识库失败: " + e.getMessage());
         }
@@ -125,7 +137,7 @@ public class KnowledgeBaseVectorService {
     public List<Document> similaritySearch(String query, List<Long> knowledgeBaseIds, int topK, double minScore) {
         log.info("向量相似度搜索: query={}, kbIds={}, topK={}, minScore={}",
             query, knowledgeBaseIds, topK, minScore);
-        
+        long startNanos = System.nanoTime();
         try {
             SearchRequest.Builder builder = SearchRequest.builder()
                 .query(query)
@@ -141,6 +153,12 @@ public class KnowledgeBaseVectorService {
 
             List<Document> results = vectorStore.similaritySearch(builder.build());
             if (results == null) {
+                applicationMetrics.recordRagRetrieval(
+                    System.nanoTime() - startNanos,
+                    ApplicationMetrics.RetrievalPath.PRIMARY,
+                    0,
+                    ApplicationMetrics.Outcome.SUCCESS
+                );
                 return List.of();
             }
 
@@ -150,15 +168,28 @@ public class KnowledgeBaseVectorService {
                 .collect(Collectors.toList());
 
             log.info("搜索完成: 找到 {} 个相关文档", limitedResults.size());
+            applicationMetrics.recordRagRetrieval(
+                System.nanoTime() - startNanos,
+                ApplicationMetrics.RetrievalPath.PRIMARY,
+                limitedResults.size(),
+                ApplicationMetrics.Outcome.SUCCESS
+            );
             return limitedResults;
             
         } catch (Exception e) {
+            applicationMetrics.recordRagRetrieval(
+                System.nanoTime() - startNanos,
+                ApplicationMetrics.RetrievalPath.PRIMARY,
+                0,
+                ApplicationMetrics.Outcome.FAILURE
+            );
             log.warn("向量搜索前置过滤失败，回退到本地过滤: {}", e.getMessage());
             return similaritySearchFallback(query, knowledgeBaseIds, topK, minScore);
         }
     }
 
     private List<Document> similaritySearchFallback(String query, List<Long> knowledgeBaseIds, int topK, double minScore) {
+        long startNanos = System.nanoTime();
         try {
             // 回退检索仍保留 topK/minScore，避免兜底路径引入过多弱相关命中
             SearchRequest.Builder builder = SearchRequest.builder()
@@ -170,6 +201,12 @@ public class KnowledgeBaseVectorService {
 
             List<Document> allResults = vectorStore.similaritySearch(builder.build());
             if (allResults == null || allResults.isEmpty()) {
+                applicationMetrics.recordRagRetrieval(
+                    System.nanoTime() - startNanos,
+                    ApplicationMetrics.RetrievalPath.FALLBACK,
+                    0,
+                    ApplicationMetrics.Outcome.SUCCESS
+                );
                 return List.of();
             }
 
@@ -184,8 +221,20 @@ public class KnowledgeBaseVectorService {
                 .collect(Collectors.toList());
 
             log.info("回退检索完成: 找到 {} 个相关文档", results.size());
+            applicationMetrics.recordRagRetrieval(
+                System.nanoTime() - startNanos,
+                ApplicationMetrics.RetrievalPath.FALLBACK,
+                results.size(),
+                ApplicationMetrics.Outcome.SUCCESS
+            );
             return results;
         } catch (Exception e) {
+            applicationMetrics.recordRagRetrieval(
+                System.nanoTime() - startNanos,
+                ApplicationMetrics.RetrievalPath.FALLBACK,
+                0,
+                ApplicationMetrics.Outcome.FAILURE
+            );
             log.error("向量搜索失败: {}", e.getMessage(), e);
             throw new BusinessException(ErrorCode.KNOWLEDGE_BASE_QUERY_FAILED,
                 "向量搜索失败: " + e.getMessage());
