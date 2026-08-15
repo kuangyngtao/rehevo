@@ -1,0 +1,18 @@
+{
+  "dataset": "THUIR/T2Ranking",
+  "license": "Apache-2.0",
+  "purpose": "中文候选排序与Cross-Encoder重排的外部回归，不用于端到端求职问答结论",
+  "source": "https://huggingface.co/datasets/THUIR/T2Ranking",
+  "split": "dev",
+  "selection": {
+    "method": "按qid升序后使用固定伪随机种子抽样",
+    "seed": 20260815,
+    "targetCases": 200,
+    "status": "PENDING_IMPORT"
+  },
+  "datasetRevision": null,
+  "sourceFileSha256": null,
+  "selectedQidSha256": null,
+  "selectedQids": [],
+  "importedAt": null
+}
