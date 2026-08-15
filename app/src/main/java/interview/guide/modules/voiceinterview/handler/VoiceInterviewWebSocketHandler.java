@@ -671,7 +671,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                     : null;
                 List<CompletableFuture<byte[]>> ttsFutures = new ArrayList<>();
 
-                aiReply = llmService.chatStreamSentences(
+                DashscopeLlmService.VoiceLlmResponse llmResponse = llmService.chatStreamSentences(
                     userText,
                     partialText -> {
                         if (partialText == null || partialText.isBlank() || !session.isOpen()) {
@@ -707,9 +707,22 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                     sessionEntity,
                     conversationHistory
                 );
+                aiReply = llmResponse.content();
 
-                recordTimerSinceNanos(ApplicationMetrics.VoiceTimer.LLM_DURATION, llmStartNanos, ApplicationMetrics.Outcome.SUCCESS);
-                applicationMetrics.recordVoiceLlmCall(true, ApplicationMetrics.Outcome.SUCCESS);
+                ApplicationMetrics.Outcome llmOutcome = llmResponse.success()
+                    ? ApplicationMetrics.Outcome.SUCCESS
+                    : ApplicationMetrics.Outcome.FAILURE;
+                recordTimerSinceNanos(ApplicationMetrics.VoiceTimer.LLM_DURATION, llmStartNanos, llmOutcome);
+                applicationMetrics.recordVoiceLlmCall(llmResponse.streaming(), llmOutcome);
+                if (!llmResponse.success()) {
+                    log.warn("LLM response failed for session {}: {}", sessionId, aiReply);
+                    recordTimerSinceNanos(ApplicationMetrics.VoiceTimer.TURN_DURATION,
+                        turnStartNanos, ApplicationMetrics.Outcome.FAILURE);
+                    applicationMetrics.recordVoiceTurn(ApplicationMetrics.Outcome.FAILURE);
+                    applicationMetrics.recordVoiceError(ApplicationMetrics.VoiceErrorStage.TURN);
+                    sendError(session, aiReply);
+                    return;
+                }
                 log.info("LLM response for session {}: '{}'", sessionId, aiReply);
 
                 if (!session.isOpen()) {

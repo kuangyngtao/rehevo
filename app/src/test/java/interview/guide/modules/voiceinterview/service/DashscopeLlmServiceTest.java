@@ -13,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -76,5 +77,21 @@ class DashscopeLlmServiceTest {
     String result = service.chat("请介绍项目", session, List.of());
 
     assertThat(result).isEqualTo("AI 服务认证失败，请检查 API Key 配置");
+  }
+
+  @Test
+  @DisplayName("流式聚合空 Chunk 异常允许降级为非流式调用")
+  void identifiesStreamingAggregationFailure() {
+    assertThat(DashscopeLlmService.isStreamingAggregationFailure(
+        new IllegalStateException("stream failed", new NoSuchElementException("No value present"))
+    )).isTrue();
+    assertThat(DashscopeLlmService.isStreamingAggregationFailure(
+        new IllegalStateException("request timeout")
+    )).isFalse();
+
+    when(llmProviderRegistry.getVoiceChatClient("dashscope"))
+        .thenThrow(new IllegalStateException("request timeout"));
+    assertThat(service.chat("请介绍项目", session, List.of()))
+        .isEqualTo("AI 服务响应超时，请稍后重试");
   }
 }

@@ -12,6 +12,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,20 +60,20 @@ public class DashscopeLlmService {
     }
 
     public String chatStream(String userInput, Consumer<String> onToken, VoiceInterviewSessionEntity session, List<String> conversationHistory) {
-        return chatStreamSentences(userInput, onToken, null, session, conversationHistory);
+        return chatStreamSentences(userInput, onToken, null, session, conversationHistory).content();
     }
 
     /**
      * 流式调用 LLM，每检测到一个完整句子就回调 onSentence，同时推送实时文本给 onToken。
      * 返回完整优化后的文本。
      */
-    public String chatStreamSentences(String userInput,
-                                       Consumer<String> onToken,
-                                       Consumer<String> onSentence,
-                                       VoiceInterviewSessionEntity session,
-                                       List<String> conversationHistory) {
+    public VoiceLlmResponse chatStreamSentences(String userInput,
+                                                 Consumer<String> onToken,
+                                                 Consumer<String> onSentence,
+                                                 VoiceInterviewSessionEntity session,
+                                                 List<String> conversationHistory) {
+        PromptContext promptContext = buildPromptContext(userInput, session, conversationHistory);
         try {
-            PromptContext promptContext = buildPromptContext(userInput, session, conversationHistory);
             String provider = session.getLlmProvider();
             log.info("[VoiceInterview] Session {} using LLM provider (sentence stream): {}", session.getId(), provider);
 
@@ -147,11 +148,50 @@ public class DashscopeLlmService {
 
             log.info("LLM sentence stream response for session {}: {}", session.getId(),
                 optimized.substring(0, Math.min(100, optimized.length())));
-            return optimized;
+            return VoiceLlmResponse.success(optimized, true);
         } catch (Exception e) {
+            if (isStreamingAggregationFailure(e)) {
+                return fallbackToNonStreaming(promptContext, onSentence, session);
+            }
             log.error("LLM sentence stream error for session {}: {}", session.getId(), e.getMessage(), e);
-            return mapLlmErrorToUserMessage(e);
+            return VoiceLlmResponse.failure(mapLlmErrorToUserMessage(e), true);
         }
+    }
+
+    private VoiceLlmResponse fallbackToNonStreaming(PromptContext promptContext,
+                                                      Consumer<String> onSentence,
+                                                      VoiceInterviewSessionEntity session) {
+        try {
+            String provider = session.getLlmProvider();
+            log.warn("LLM streaming aggregation is incompatible for session {}, falling back to non-streaming", session.getId());
+            ChatClient chatClient = llmProviderRegistry.getVoiceChatClient(provider);
+            String optimized = optimizeForVoice(chatClient.prompt()
+                .system(promptContext.systemPrompt())
+                .user(promptContext.userPrompt())
+                .call()
+                .content());
+            if (onSentence != null && !optimized.isBlank()) {
+                onSentence.accept(optimized);
+            }
+            log.info("LLM non-streaming fallback response for session {}: {}", session.getId(),
+                optimized.substring(0, Math.min(100, optimized.length())));
+            return VoiceLlmResponse.success(optimized, false);
+        } catch (Exception fallbackError) {
+            log.error("LLM non-streaming fallback failed for session {}: {}", session.getId(),
+                fallbackError.getMessage(), fallbackError);
+            return VoiceLlmResponse.failure(mapLlmErrorToUserMessage(fallbackError), false);
+        }
+    }
+
+    static boolean isStreamingAggregationFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof NoSuchElementException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private PromptContext buildPromptContext(String userInput, VoiceInterviewSessionEntity session, List<String> conversationHistory) {
@@ -245,4 +285,14 @@ public class DashscopeLlmService {
     }
 
     private record PromptContext(String systemPrompt, String userPrompt) {}
+
+    public record VoiceLlmResponse(String content, boolean success, boolean streaming) {
+        static VoiceLlmResponse success(String content, boolean streaming) {
+            return new VoiceLlmResponse(content, true, streaming);
+        }
+
+        static VoiceLlmResponse failure(String message, boolean streaming) {
+            return new VoiceLlmResponse(message, false, streaming);
+        }
+    }
 }
