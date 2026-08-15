@@ -6,6 +6,7 @@ import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.knowledgebase.model.VectorStatus;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
+import interview.guide.modules.knowledgebase.repository.VectorRepository;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseVectorService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.stream.StreamMessageId;
@@ -23,16 +24,19 @@ public class VectorizeStreamConsumer extends AbstractStreamConsumer<VectorizeStr
 
     private final KnowledgeBaseVectorService vectorService;
     private final KnowledgeBaseRepository knowledgeBaseRepository;
+    private final VectorRepository vectorRepository;
 
     public VectorizeStreamConsumer(
         RedisService redisService,
         ApplicationMetrics applicationMetrics,
         KnowledgeBaseVectorService vectorService,
-        KnowledgeBaseRepository knowledgeBaseRepository
+        KnowledgeBaseRepository knowledgeBaseRepository,
+        VectorRepository vectorRepository
     ) {
         super(redisService, applicationMetrics);
         this.vectorService = vectorService;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
+        this.vectorRepository = vectorRepository;
     }
 
     record VectorizePayload(Long kbId, String content) {}
@@ -102,7 +106,8 @@ public class VectorizeStreamConsumer extends AbstractStreamConsumer<VectorizeStr
 
     @Override
     protected void markCompleted(VectorizePayload payload) {
-        updateVectorStatus(payload.kbId(), VectorStatus.COMPLETED, null);
+        int chunkCount = vectorRepository.countByKnowledgeBaseId(payload.kbId());
+        updateVectorStatus(payload.kbId(), VectorStatus.COMPLETED, null, chunkCount);
     }
 
     @Override
@@ -138,12 +143,20 @@ public class VectorizeStreamConsumer extends AbstractStreamConsumer<VectorizeStr
      * 更新向量化状态
      */
     private void updateVectorStatus(Long kbId, VectorStatus status, String error) {
+        updateVectorStatus(kbId, status, error, null);
+    }
+
+    private void updateVectorStatus(Long kbId, VectorStatus status, String error, Integer chunkCount) {
         try {
             knowledgeBaseRepository.findById(kbId).ifPresent(kb -> {
                 kb.setVectorStatus(status);
                 kb.setVectorError(error);
+                if (chunkCount != null) {
+                    kb.setChunkCount(chunkCount);
+                }
                 knowledgeBaseRepository.save(kb);
-                log.debug("向量化状态已更新: kbId={}, status={}", kbId, status);
+                log.debug("向量化状态已更新: kbId={}, status={}, chunkCount={}",
+                    kbId, status, chunkCount);
             });
         } catch (Exception e) {
             log.error("更新向量化状态失败: kbId={}, status={}, error={}", kbId, status, e.getMessage(), e);

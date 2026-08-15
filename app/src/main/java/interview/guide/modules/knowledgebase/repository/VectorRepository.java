@@ -62,6 +62,33 @@ public class VectorRepository {
     }
 
     /**
+     * 查询指定知识库当前已提升为正式状态的向量分块数。
+     *
+     * <p>向量化任务使用临时 {@code kb_id} 写入，只有提升成功后才会变成正式知识库 ID；
+     * 因此这里只统计正式记录，避免将失败任务的临时分块写进页面统计。</p>
+     *
+     * @param knowledgeBaseId 知识库ID
+     * @return 正式向量分块数
+     */
+    public int countByKnowledgeBaseId(Long knowledgeBaseId) {
+        String sql = """
+            SELECT COUNT(*)
+            FROM vector_store
+            WHERE metadata->>'kb_id' = ?
+               OR (metadata->>'kb_id_long' IS NOT NULL AND (metadata->>'kb_id_long')::bigint = ?)
+            """;
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                sql, Integer.class, knowledgeBaseId.toString(), knowledgeBaseId);
+            return count != null ? count : 0;
+        } catch (Exception e) {
+            log.error("查询知识库向量分块数失败: kbId={}, error={}", knowledgeBaseId, e.getMessage(), e);
+            throw new BusinessException(
+                ErrorCode.KNOWLEDGE_BASE_VECTORIZATION_FAILED, "查询知识库向量分块数失败");
+        }
+    }
+
+    /**
      * 删除指定向量化任务写入的临时向量数据。
      */
     public int deleteByVectorJobId(String jobId) {
