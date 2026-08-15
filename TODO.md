@@ -21,7 +21,7 @@
 - [x] 语音 Handler 已记录部分 ASR、LLM、TTS、Turn 指标。
 - [x] 测试基线可信：默认单测与需要 Redis/Spring 上下文的集成测试已分组，两组均无跳过项。
 - [x] RAG 运行可观测：向量化、主/兜底检索、改写和回答已写入专属 Micrometer 指标；本轮真实查询已在 Prometheus 验证。
-- [ ] 监控闭环：仓库当前没有 `observability/`、Prometheus 抓取配置、Grafana Dashboard 和告警规则。
+- [x] 监控配置已版本化：`observability/` 包含 Prometheus 抓取、Grafana 自动装载、三张 Dashboard、七条告警与 RAG 基线实验记录；本轮仍需启动容器验证闭环。
 - [ ] RAG 来源可追溯：`QueryResponse` 当前只有答案、知识库 ID 和名称，没有来源片段与相似度。
 - [ ] 实时 Turn 有明确协议：当前没有独立 `VoiceTurnCoordinator`，也没有统一的 `turnId/eventId/sequence` 约束。
 
@@ -66,15 +66,17 @@
 
 ### 0.3 落地监控配置
 
-- [ ] 新建 `observability/`：
-  - [ ] `prometheus/`：抓取配置和规则加载；
-  - [ ] `grafana/provisioning/`：数据源和 Dashboard 自动装载；
-  - [ ] `grafana/dashboards/`：三张可导入看板；
-  - [ ] `alerts/`：5—7 条带恢复动作的告警；
-  - [ ] `experiments/`：故障实验步骤与结果。
-- [ ] 在开发 Compose 中接入 Prometheus 和 Grafana，不影响现有应用依赖启动。
-- [ ] 建立三张 Dashboard：实时语音体验、异步任务可靠性、AI/RAG 质量与成本。
-- [ ] 告警至少覆盖 Turn 错误率、首音频 P95、ASR 重连、Stream backlog、最老 Pending、结构化输出失败和 RAG 错误。
+- [x] 新建 `observability/`：
+  - [x] `prometheus/`：抓取配置和规则加载；
+  - [x] `grafana/provisioning/`：数据源和 Dashboard 自动装载；
+  - [x] `grafana/dashboards/`：三张可导入看板；
+  - [x] `alerts/`：七条带恢复动作的告警；
+  - [x] `experiments/`：RAG 基线实验步骤与结果记录。
+- [x] 在开发 Compose 中接入 Prometheus 和 Grafana，默认 Prometheus 端口为 9091，避免占用已有 9090。
+- [x] 建立三张 Dashboard：实时语音体验、异步任务可靠性、AI/RAG 质量与成本代理指标。
+- [x] 告警覆盖 Turn 错误率、首音频 P95、ASR 重连、Stream backlog、最老 Pending、结构化输出失败和 RAG 错误。
+- [x] 使用固定知识库完成真实 RAG 基线：服务端 3 次成功、平均回答 120.548 秒（第 3 次约 317 秒长尾）、平均主检索 0.448 秒、每次命中 1 个 Chunk；客户端只收到 2 次响应，第 3 次 90 秒超时后服务端仍继续执行，已如实记录（见 `observability/experiments/rag-baseline.md`）。
+- [ ] 启动 Prometheus/Grafana，验证 target 为 UP、数据源/看板/规则自动加载；本机 Docker Hub 拉取在本轮无输出超时，尚未将该项标为完成。
 
 完成门槛：重启环境后自动加载数据源、看板和规则；Prometheus target 为 UP；每条告警都有触发条件、持续窗口和恢复动作。
 

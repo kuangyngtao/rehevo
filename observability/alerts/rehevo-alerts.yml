@@ -1,0 +1,79 @@
+groups:
+  - name: rehevo-runtime
+    interval: 30s
+    rules:
+      - alert: RehevoVoiceTurnErrorRateHigh
+        expr: |
+          sum(rate(app_voice_interview_turn_completed_total{status="failure"}[10m]))
+          / clamp_min(sum(rate(app_voice_interview_turn_completed_total[10m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          component: voice
+        annotations:
+          summary: 语音 Turn 失败率超过 5%
+          action: 检查 ASR、LLM、TTS 凭据与 voice Turn 错误日志；恢复后告警会自动关闭。
+
+      - alert: RehevoVoiceFirstAudioP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(app_voice_interview_first_audio_latency_seconds_bucket[10m])) by (le)) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: voice
+        annotations:
+          summary: 首音频 P95 超过 5 秒
+          action: 对照 LLM 首 Token 与 TTS 耗时，定位长尾来源；恢复阈值以下后自动关闭。
+
+      - alert: RehevoAsrReconnectBurst
+        expr: sum(increase(app_voice_interview_asr_reconnect_total[10m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: voice
+        annotations:
+          summary: 10 分钟内 ASR 重连超过 5 次
+          action: 检查网络、DashScope ASR 状态和重连日志；重连频率下降后自动关闭。
+
+      - alert: RehevoAsyncStreamBacklogHigh
+        expr: max(app_async_stream_backlog) > 50
+        for: 10m
+        labels:
+          severity: warning
+          component: async
+        annotations:
+          summary: Redis Stream backlog 超过 50 条
+          action: 检查对应 consumer 存活、失败任务与外部依赖；lag 回落后自动关闭。
+
+      - alert: RehevoAsyncStreamPendingStalled
+        expr: max(app_async_stream_oldest_pending_idle) > 300000
+        for: 5m
+        labels:
+          severity: critical
+          component: async
+        annotations:
+          summary: 最老 Pending 已超过 5 分钟未 ACK
+          action: 检查消费者异常与失败重试记录，确认可安全重放；Pending 清空后自动关闭。
+
+      - alert: RehevoStructuredOutputFailures
+        expr: sum(increase(app_ai_structured_output_invocations_total{status="failure"}[10m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: ai
+        annotations:
+          summary: 10 分钟内结构化输出失败超过 2 次
+          action: 查看失败 context 与模型原始输出日志，必要时调整 Prompt/Schema；恢复后自动关闭。
+
+      - alert: RehevoRagAnswerErrorRateHigh
+        expr: |
+          sum(rate(app_rag_answer_total{status="failure"}[10m]))
+          / clamp_min(sum(rate(app_rag_answer_total{status=~"success|failure"}[10m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: rag
+        annotations:
+          summary: RAG 回答失败率超过 5%
+          action: 检查模型、向量库和检索失败日志；恢复后自动关闭。

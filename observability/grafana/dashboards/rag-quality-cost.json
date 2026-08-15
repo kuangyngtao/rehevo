@@ -1,0 +1,16 @@
+{
+  "uid": "rehevo-rag-quality-cost",
+  "title": "Rehevo - AI / RAG 质量与成本代理指标",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {"id": 1, "title": "RAG 回答成功率", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "sum(rate(app_rag_answer_total{status=\"success\"}[$__rate_interval])) / clamp_min(sum(rate(app_rag_answer_total{status=~\"success|failure\"}[$__rate_interval])), 0.001)", "refId": "A"}]},
+    {"id": 2, "title": "回答 P95（秒）", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(app_rag_answer_seconds_bucket[$__rate_interval])) by (le))", "refId": "A"}]},
+    {"id": 3, "title": "检索 P95（秒）", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(app_rag_retrieval_seconds_bucket[$__rate_interval])) by (le))", "refId": "A"}]},
+    {"id": 4, "title": "平均检索命中数", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "sum(rate(app_rag_retrieval_hits_sum[$__rate_interval])) / clamp_min(sum(rate(app_rag_retrieval_hits_count[$__rate_interval])), 0.001)", "refId": "A"}]},
+    {"id": 5, "title": "检索路径与无结果", "type": "timeseries", "gridPos": {"h": 10, "w": 12, "x": 0, "y": 8}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "sum(rate(app_rag_retrieval_total[$__rate_interval])) by (path, status)", "legendFormat": "检索 {{path}} / {{status}}", "refId": "A"}, {"expr": "sum(rate(app_rag_retrieval_no_hit_total[$__rate_interval])) by (path)", "legendFormat": "无结果 {{path}}", "refId": "B"}]},
+    {"id": 6, "title": "回答与结构化输出失败", "type": "timeseries", "gridPos": {"h": 10, "w": 12, "x": 12, "y": 8}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "sum(rate(app_rag_answer_total[$__rate_interval])) by (status)", "legendFormat": "RAG {{status}}", "refId": "A"}, {"expr": "sum(rate(app_ai_structured_output_invocations_total[$__rate_interval])) by (status)", "legendFormat": "结构化输出 {{status}}", "refId": "B"}]}
+  ]
+}

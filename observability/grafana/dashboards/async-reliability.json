@@ -1,0 +1,14 @@
+{
+  "uid": "rehevo-async-reliability",
+  "title": "Rehevo - 异步任务可靠性",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {"id": 1, "title": "Stream Backlog", "type": "timeseries", "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "app_async_stream_backlog", "legendFormat": "{{stream}}", "refId": "A"}]},
+    {"id": 2, "title": "最老 Pending idle（秒）", "type": "timeseries", "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "app_async_stream_oldest_pending_idle / 1000", "legendFormat": "{{stream}}", "refId": "A"}]},
+    {"id": 3, "title": "任务结果速率", "type": "timeseries", "gridPos": {"h": 10, "w": 12, "x": 0, "y": 9}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "sum(rate(app_async_stream_task_total[$__rate_interval])) by (stream, status)", "legendFormat": "{{stream}} / {{status}}", "refId": "A"}]},
+    {"id": 4, "title": "处理耗时 P95（秒）", "type": "timeseries", "gridPos": {"h": 10, "w": 12, "x": 12, "y": 9}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(app_async_stream_processing_seconds_bucket[$__rate_interval])) by (le, stream))", "legendFormat": "{{stream}}", "refId": "A"}]}
+  ]
+}

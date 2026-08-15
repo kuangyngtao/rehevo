@@ -1,0 +1,16 @@
+{
+  "uid": "rehevo-voice-experience",
+  "title": "Rehevo - 实时语音体验",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {"id": 1, "title": "活跃语音会话", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "app_voice_interview_active_sessions", "refId": "A"}]},
+    {"id": 2, "title": "首音频 P95（秒）", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(app_voice_interview_first_audio_latency_seconds_bucket[$__rate_interval])) by (le))", "refId": "A"}]},
+    {"id": 3, "title": "Turn P95（秒）", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(app_voice_interview_turn_duration_seconds_bucket[$__rate_interval])) by (le))", "refId": "A"}]},
+    {"id": 4, "title": "ASR 重连（5 分钟）", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "sum(increase(app_voice_interview_asr_reconnect_total[5m]))", "refId": "A"}]},
+    {"id": 5, "title": "语音 Turn 结果速率", "type": "timeseries", "gridPos": {"h": 10, "w": 12, "x": 0, "y": 8}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "sum(rate(app_voice_interview_turn_completed_total[$__rate_interval])) by (status)", "legendFormat": "{{status}}", "refId": "A"}]},
+    {"id": 6, "title": "首 Token / 首音频 P95", "type": "timeseries", "gridPos": {"h": 10, "w": 12, "x": 12, "y": 8}, "datasource": {"uid": "rehevo-prometheus"}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(app_voice_interview_llm_first_token_latency_seconds_bucket[$__rate_interval])) by (le))", "legendFormat": "LLM 首 Token", "refId": "A"}, {"expr": "histogram_quantile(0.95, sum(rate(app_voice_interview_first_audio_latency_seconds_bucket[$__rate_interval])) by (le))", "legendFormat": "首音频", "refId": "B"}]}
+  ]
+}

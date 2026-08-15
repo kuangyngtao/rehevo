@@ -292,6 +292,17 @@ app:
       chunk-duration: ${APP_VOICE_INTERVIEW_AUDIO_CHUNK_DURATION:2000}  # 2 seconds
 
 management:
+  metrics:
+    distribution:
+      # 仅为 0.3 看板与告警所需的业务 Timer 发布可聚合直方图；避免对所有指标增加基数和存储成本。
+      percentiles-histogram:
+        app.rag.retrieval: true
+        app.rag.answer: true
+        app.async.stream.processing: true
+        app.voice.interview.llm.first_token_latency: true
+        app.voice.interview.first_audio_latency: true
+        app.voice.interview.tts.duration: true
+        app.voice.interview.turn.duration: true
   endpoints:
     web:
       exposure:
