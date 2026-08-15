@@ -7,6 +7,8 @@ import interview.guide.common.exception.ErrorCode;
 import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.modules.knowledgebase.model.QueryRequest;
 import interview.guide.modules.knowledgebase.model.QueryResponse;
+import interview.guide.modules.knowledgebase.model.RetrievalEvaluationRequest;
+import interview.guide.modules.knowledgebase.model.RetrievalEvaluationResponse;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -217,6 +219,25 @@ public class KnowledgeBaseQueryService {
     }
 
     /**
+     * 批量执行当前的 Query Rewrite + 向量检索链路，不调用回答模型且不写入用户提问计数。
+     * 该方法仅供固定评测集运行，评测脚本根据返回 evidence 计算检索指标。
+     */
+    public RetrievalEvaluationResponse evaluateRetrieval(RetrievalEvaluationRequest request) {
+        List<RetrievalEvaluationResponse.RetrievalEvaluationItem> items = request.queries().stream()
+            .map(query -> {
+                QueryContext queryContext = buildQueryContext(query.question(), List.of(), request.useRewrite());
+                RetrievalResult retrievalResult = retrieveRelevantDocs(queryContext, query.knowledgeBaseIds());
+                return new RetrievalEvaluationResponse.RetrievalEvaluationItem(
+                    query.question(),
+                    retrievalResult.query(),
+                    buildEvidence(retrievalResult.documents())
+                );
+            })
+            .toList();
+        return new RetrievalEvaluationResponse(items);
+    }
+
+    /**
      * 流式查询知识库（SSE，无上下文）
      *
      * @param knowledgeBaseIds 知识库ID列表
@@ -313,8 +334,12 @@ public class KnowledgeBaseQueryService {
     }
 
     private QueryContext buildQueryContext(String originalQuestion, List<Message> history) {
+        return buildQueryContext(originalQuestion, history, true);
+    }
+
+    private QueryContext buildQueryContext(String originalQuestion, List<Message> history, boolean useRewrite) {
         String normalizedQuestion = normalizeQuestion(originalQuestion);
-        String rewrittenQuestion = rewriteQuestion(normalizedQuestion, history);
+        String rewrittenQuestion = useRewrite ? rewriteQuestion(normalizedQuestion, history) : normalizedQuestion;
         Set<String> candidates = new LinkedHashSet<>();
         candidates.add(rewrittenQuestion);
         candidates.add(normalizedQuestion);

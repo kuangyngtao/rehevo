@@ -6,6 +6,8 @@ import interview.guide.modules.knowledgebase.model.KnowledgeBaseListItemDTO;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseStatsDTO;
 import interview.guide.modules.knowledgebase.model.QueryRequest;
 import interview.guide.modules.knowledgebase.model.QueryResponse;
+import interview.guide.modules.knowledgebase.model.RetrievalEvaluationRequest;
+import interview.guide.modules.knowledgebase.model.RetrievalEvaluationResponse;
 import interview.guide.modules.knowledgebase.model.VectorStatus;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseDeleteService;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseListService;
@@ -95,6 +97,17 @@ public class KnowledgeBaseController {
     @RateLimit(dimension = RateLimit.Dimension.IP, count = 10)
     public Result<QueryResponse> queryKnowledgeBase(@Valid @RequestBody QueryRequest request) {
         return Result.success(queryService.queryKnowledgeBase(request));
+    }
+
+    /**
+     * 固定评测集的批量检索入口：不生成回答，也不增加知识库问题计数。
+     */
+    @PostMapping("/api/knowledgebase/evaluation/retrieval")
+    @RateLimit(dimension = RateLimit.Dimension.GLOBAL, count = 2)
+    @RateLimit(dimension = RateLimit.Dimension.IP, count = 2)
+    public Result<RetrievalEvaluationResponse> evaluateRetrieval(
+            @Valid @RequestBody RetrievalEvaluationRequest request) {
+        return Result.success(queryService.evaluateRetrieval(request));
     }
 
     /**
