@@ -55,6 +55,17 @@ export interface QueryResponse {
   answer: string;
   knowledgeBaseId: number;
   knowledgeBaseName: string;
+  retrievalQuery: string | null;
+  evidence: RetrievalEvidence[];
+}
+
+export interface RetrievalEvidence {
+  vectorDocumentId: string;
+  knowledgeBaseId: number | null;
+  documentSha256: string | null;
+  chunkIndex: number | null;
+  similarityScore: number | null;
+  contentPreview: string | null;
 }
 
 export const knowledgeBaseApi = {

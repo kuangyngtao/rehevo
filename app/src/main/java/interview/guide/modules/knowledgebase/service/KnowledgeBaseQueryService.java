@@ -7,6 +7,8 @@ import interview.guide.common.exception.ErrorCode;
 import interview.guide.common.metrics.ApplicationMetrics;
 import interview.guide.modules.knowledgebase.model.QueryRequest;
 import interview.guide.modules.knowledgebase.model.QueryResponse;
+import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
+import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -40,11 +42,13 @@ public class KnowledgeBaseQueryService {
     private static final String NO_RESULT_RESPONSE = "抱歉，在选定的知识库中未检索到相关信息。请换一个更具体的关键词或补充上下文后再试。";
     private static final int STREAM_PROBE_CHARS = 120;
     private static final int MAX_REWRITE_HISTORY_CHAR = 200;
+    private static final int EVIDENCE_PREVIEW_MAX_CHARS = 240;
 
     private final LlmProviderRegistry llmProviderRegistry;
     private final KnowledgeBaseVectorService vectorService;
     private final KnowledgeBaseListService listService;
     private final KnowledgeBaseCountService countService;
+    private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final ApplicationMetrics applicationMetrics;
     private final PromptTemplate systemPromptTemplate;
     private final PromptTemplate userPromptTemplate;
@@ -62,6 +66,7 @@ public class KnowledgeBaseQueryService {
             KnowledgeBaseVectorService vectorService,
             KnowledgeBaseListService listService,
             KnowledgeBaseCountService countService,
+            KnowledgeBaseRepository knowledgeBaseRepository,
             ApplicationMetrics applicationMetrics,
             KnowledgeBaseQueryProperties queryProperties,
             ResourceLoader resourceLoader) throws IOException {
@@ -69,6 +74,7 @@ public class KnowledgeBaseQueryService {
         this.vectorService = vectorService;
         this.listService = listService;
         this.countService = countService;
+        this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.applicationMetrics = applicationMetrics;
         this.systemPromptTemplate = new PromptTemplate(
             resourceLoader.getResource(queryProperties.getSystemPromptPath())
@@ -114,25 +120,30 @@ public class KnowledgeBaseQueryService {
      * @return AI回答
      */
     public String answerQuestion(List<Long> knowledgeBaseIds, String question) {
+        return executeSyncQuery(knowledgeBaseIds, question).answer();
+    }
+
+    private SyncQueryResult executeSyncQuery(List<Long> knowledgeBaseIds, String question) {
         long startNanos = System.nanoTime();
         log.info("收到知识库提问: kbIds={}, question={}", knowledgeBaseIds, question);
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || normalizeQuestion(question).isBlank()) {
             applicationMetrics.recordRagAnswer(
                 System.nanoTime() - startNanos, ApplicationMetrics.Interaction.SYNC, ApplicationMetrics.Outcome.SKIPPED
             );
-            return NO_RESULT_RESPONSE;
+            return new SyncQueryResult(NO_RESULT_RESPONSE, RetrievalResult.empty());
         }
 
         countService.updateQuestionCounts(knowledgeBaseIds);
 
         QueryContext queryContext = buildQueryContext(question, List.of());
-        List<Document> relevantDocs = retrieveRelevantDocs(queryContext, knowledgeBaseIds);
+        RetrievalResult retrievalResult = retrieveRelevantDocs(queryContext, knowledgeBaseIds);
+        List<Document> relevantDocs = retrievalResult.documents();
 
         if (!hasEffectiveHit(relevantDocs)) {
             applicationMetrics.recordRagAnswer(
                 System.nanoTime() - startNanos, ApplicationMetrics.Interaction.SYNC, ApplicationMetrics.Outcome.SKIPPED
             );
-            return NO_RESULT_RESPONSE;
+            return new SyncQueryResult(NO_RESULT_RESPONSE, retrievalResult);
         }
 
         String context = relevantDocs.stream()
@@ -154,7 +165,7 @@ public class KnowledgeBaseQueryService {
             applicationMetrics.recordRagAnswer(
                 System.nanoTime() - startNanos, ApplicationMetrics.Interaction.SYNC, ApplicationMetrics.Outcome.SUCCESS
             );
-            return answer;
+            return new SyncQueryResult(answer, retrievalResult);
 
         } catch (Exception e) {
             log.error("知识库问答失败: {}", e.getMessage(), e);
@@ -187,7 +198,7 @@ public class KnowledgeBaseQueryService {
      * 查询知识库并返回完整响应
      */
     public QueryResponse queryKnowledgeBase(QueryRequest request) {
-        String answer = answerQuestion(request.knowledgeBaseIds(), request.question());
+        SyncQueryResult queryResult = executeSyncQuery(request.knowledgeBaseIds(), request.question());
 
         // 获取知识库名称（多个知识库用逗号分隔）
         List<String> kbNames = listService.getKnowledgeBaseNames(request.knowledgeBaseIds());
@@ -196,7 +207,13 @@ public class KnowledgeBaseQueryService {
         // 使用第一个知识库ID作为主要标识（兼容前端）
         Long primaryKbId = request.knowledgeBaseIds().getFirst();
 
-        return new QueryResponse(answer, primaryKbId, kbNamesStr);
+        return new QueryResponse(
+            queryResult.answer(),
+            primaryKbId,
+            kbNamesStr,
+            queryResult.retrievalResult().query(),
+            buildEvidence(queryResult.retrievalResult().documents())
+        );
     }
 
     /**
@@ -236,7 +253,7 @@ public class KnowledgeBaseQueryService {
             // 2. Query rewrite + 动态参数检索
             List<Message> effectiveHistory = sanitizeHistory(history);
             QueryContext queryContext = buildQueryContext(question, effectiveHistory);
-            List<Document> relevantDocs = retrieveRelevantDocs(queryContext, knowledgeBaseIds);
+            List<Document> relevantDocs = retrieveRelevantDocs(queryContext, knowledgeBaseIds).documents();
 
             if (!hasEffectiveHit(relevantDocs)) {
                 applicationMetrics.recordRagAnswer(
@@ -319,7 +336,7 @@ public class KnowledgeBaseQueryService {
     }
 
 //    向量检索
-    private List<Document> retrieveRelevantDocs(QueryContext queryContext, List<Long> knowledgeBaseIds) {
+    private RetrievalResult retrieveRelevantDocs(QueryContext queryContext, List<Long> knowledgeBaseIds) {
         for (String candidateQuery : queryContext.candidateQueries()) {
             if (candidateQuery.isBlank()) {
                 continue;
@@ -332,10 +349,67 @@ public class KnowledgeBaseQueryService {
             );
             log.info("检索候选 query='{}'，命中 {} 条", candidateQuery, docs.size());
             if (hasEffectiveHit(docs)) {
-                return docs;
+                return new RetrievalResult(candidateQuery, docs);
             }
         }
-        return List.of();
+        return RetrievalResult.empty();
+    }
+
+    private List<QueryResponse.RetrievalEvidence> buildEvidence(List<Document> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> knowledgeBaseIds = documents.stream()
+            .map(document -> parseLongMetadata(document, "kb_id"))
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toSet());
+        Map<Long, String> documentHashes = knowledgeBaseRepository.findAllById(knowledgeBaseIds).stream()
+            .collect(Collectors.toMap(KnowledgeBaseEntity::getId, KnowledgeBaseEntity::getFileHash));
+
+        return documents.stream()
+            .map(document -> {
+                Long knowledgeBaseId = parseLongMetadata(document, "kb_id");
+                return new QueryResponse.RetrievalEvidence(
+                    document.getId(),
+                    knowledgeBaseId,
+                    knowledgeBaseId == null ? null : documentHashes.get(knowledgeBaseId),
+                    parseIntegerMetadata(document, "chunk_index"),
+                    document.getScore(),
+                    abbreviate(document.getText(), EVIDENCE_PREVIEW_MAX_CHARS)
+                );
+            })
+            .toList();
+    }
+
+    private Long parseLongMetadata(Document document, String key) {
+        Object value = document.getMetadata().get(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer parseIntegerMetadata(Document document, String key) {
+        Object value = document.getMetadata().get(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String abbreviate(String text, int maxChars) {
+        if (text == null || text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, maxChars) + "...";
     }
 
     private SearchParams resolveSearchParams(String question) {
@@ -490,5 +564,14 @@ public class KnowledgeBaseQueryService {
     }
 
     private record QueryContext(String originalQuestion, List<String> candidateQueries, SearchParams searchParams) {
+    }
+
+    private record RetrievalResult(String query, List<Document> documents) {
+        private static RetrievalResult empty() {
+            return new RetrievalResult(null, List.of());
+        }
+    }
+
+    private record SyncQueryResult(String answer, RetrievalResult retrievalResult) {
     }
 }
