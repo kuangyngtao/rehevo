@@ -11,4 +11,3 @@ scrape_configs:
     static_configs:
       # 后端在 Windows 宿主机运行；Docker Desktop 通过该名称访问宿主机。
       - targets: [host.docker.internal:8080]
-
