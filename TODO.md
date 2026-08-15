@@ -76,12 +76,15 @@
 - [x] 建立三张 Dashboard：实时语音体验、异步任务可靠性、AI/RAG 质量与成本代理指标。
 - [x] 告警覆盖 Turn 错误率、首音频 P95、ASR 重连、Stream backlog、最老 Pending、结构化输出失败和 RAG 错误。
 - [x] 使用固定知识库完成真实 RAG 基线：服务端 3 次成功、平均回答 120.548 秒（第 3 次约 317 秒长尾）、平均主检索 0.448 秒、每次命中 1 个 Chunk；客户端只收到 2 次响应，第 3 次 90 秒超时后服务端仍继续执行，已如实记录（见 `observability/experiments/rag-baseline.md`）。
-- [ ] 启动 Prometheus/Grafana，验证 target 为 UP、数据源/看板/规则自动加载；本机 Docker Hub 拉取在本轮无输出超时，尚未将该项标为完成。
+- [x] 已启动 Prometheus/Grafana：`up{job="rehevo-app"}=1`，七条告警规则均为 `health=ok`；Grafana 健康检查通过，数据库已出现 `Rehevo` provision 文件夹、数据源和三份 Dashboard 定义。
 
 完成门槛：重启环境后自动加载数据源、看板和规则；Prometheus target 为 UP；每条告警都有触发条件、持续窗口和恢复动作。
 
+**0.3 状态：完成。**
+
 ### 0.4 记录基线并完成故障闭环
 
+- [x] 固化 20 Turn 的真实语音采集协议、固定组成、原始指标取数和异常分类（见 `observability/experiments/voice-baseline.md`）。
 - [ ] 使用同一配置完成至少 20 次正常语音 Turn，记录 ASR ready、首 Token、首音频、TTS、整轮耗时和成功率。
 - [ ] 记录评估任务耗时、向量化耗时、RAG 检索耗时与无结果比例。
 - [ ] 人为增加 TTS 延迟，验证首音频 P95/P99 和告警同步变化。
