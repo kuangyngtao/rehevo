@@ -303,6 +303,12 @@ management:
         app.voice.interview.first_audio_latency: true
         app.voice.interview.tts.duration: true
         app.voice.interview.turn.duration: true
+        app.voice.interview.turn.stage_latency: true
+      slo:
+        app.voice.interview.llm.first_token_latency: 1s,3s,5s,10s,15s,20s,30s,45s,60s,90s
+        app.voice.interview.first_audio_latency: 1s,3s,5s,10s,15s,20s,30s,45s,60s,90s
+        app.voice.interview.turn.duration: 1s,3s,5s,10s,15s,20s,30s,45s,60s,90s
+        app.voice.interview.turn.stage_latency: 1s,3s,5s,10s,15s,20s,30s,45s,60s,90s
   endpoints:
     web:
       exposure:

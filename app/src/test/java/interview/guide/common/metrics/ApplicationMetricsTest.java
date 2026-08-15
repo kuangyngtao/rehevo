@@ -80,6 +80,12 @@ class ApplicationMetricsTest {
   @DisplayName("业务指标不允许高基数标签")
   void exposesOnlyTheApprovedLowCardinalityTagKeys() {
     metrics.recordVoiceLlmCall(true, ApplicationMetrics.Outcome.SUCCESS);
+    metrics.recordVoiceTurnStage(
+        ApplicationMetrics.VoiceTurnStage.FIRST_AUDIO,
+        ApplicationMetrics.VoiceTurnMode.STREAM,
+        TimeUnit.MILLISECONDS.toNanos(120),
+        ApplicationMetrics.Outcome.SUCCESS
+    );
     metrics.recordVoiceError(ApplicationMetrics.VoiceErrorStage.TURN);
     metrics.recordRagRewrite(ApplicationMetrics.Outcome.SKIPPED);
 
@@ -89,12 +95,18 @@ class ApplicationMetricsTest {
         AppMetricNames.TAG_PATH,
         AppMetricNames.TAG_INTERACTION,
         AppMetricNames.TAG_STREAMING,
-        AppMetricNames.TAG_STAGE
+        AppMetricNames.TAG_STAGE,
+        AppMetricNames.TAG_MODE
     );
     assertThat(meterRegistry.getMeters())
         .extracting(Meter::getId)
         .flatExtracting(id -> id.getTags())
         .extracting(tag -> tag.getKey())
         .allMatch(allowed::contains);
+    assertThat(meterRegistry.get(AppMetricNames.VOICE_TURN_STAGE_LATENCY)
+        .tag(AppMetricNames.TAG_STAGE, "first_audio")
+        .tag(AppMetricNames.TAG_MODE, "stream")
+        .tag(AppMetricNames.TAG_STATUS, "success")
+        .timer().count()).isEqualTo(1);
   }
 }

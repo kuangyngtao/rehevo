@@ -29,6 +29,7 @@ import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -630,7 +631,9 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
      */
     private void triggerLlmResponse(String sessionId, WebSocketSession session, SessionState state) {
         long turnStartNanos = System.nanoTime();
-        state.beginTurn(turnStartNanos);
+        VoiceTurnTrace turnTrace = state.beginTurn(turnStartNanos);
+        ApplicationMetrics.Outcome turnOutcome = ApplicationMetrics.Outcome.FAILURE;
+        ApplicationMetrics.VoiceTurnMode turnMode = ApplicationMetrics.VoiceTurnMode.UNKNOWN;
         state.aiSpeaking.set(true);
         try {
             if (!session.isOpen()) {
@@ -678,6 +681,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                             return;
                         }
                         if (firstTokenAtNanos.compareAndSet(0L, System.nanoTime())) {
+                            turnTrace.markFirstToken();
                             recordTimerSinceNanos(
                                 ApplicationMetrics.VoiceTimer.LLM_FIRST_TOKEN,
                                 llmStartNanos,
@@ -708,6 +712,9 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                     conversationHistory
                 );
                 aiReply = llmResponse.content();
+                turnMode = llmResponse.streaming()
+                    ? ApplicationMetrics.VoiceTurnMode.STREAM
+                    : ApplicationMetrics.VoiceTurnMode.FALLBACK;
 
                 ApplicationMetrics.Outcome llmOutcome = llmResponse.success()
                     ? ApplicationMetrics.Outcome.SUCCESS
@@ -716,9 +723,6 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                 applicationMetrics.recordVoiceLlmCall(llmResponse.streaming(), llmOutcome);
                 if (!llmResponse.success()) {
                     log.warn("LLM response failed for session {}: {}", sessionId, aiReply);
-                    recordTimerSinceNanos(ApplicationMetrics.VoiceTimer.TURN_DURATION,
-                        turnStartNanos, ApplicationMetrics.Outcome.FAILURE);
-                    applicationMetrics.recordVoiceTurn(ApplicationMetrics.Outcome.FAILURE);
                     applicationMetrics.recordVoiceError(ApplicationMetrics.VoiceErrorStage.TURN);
                     sendError(session, aiReply);
                     return;
@@ -816,6 +820,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                     }
                 }
             } else {
+                turnMode = ApplicationMetrics.VoiceTurnMode.NON_STREAMING;
                 aiReply = llmService.chat(userText, sessionEntity, conversationHistory);
                 recordTimerSinceNanos(ApplicationMetrics.VoiceTimer.LLM_DURATION, llmStartNanos, ApplicationMetrics.Outcome.SUCCESS);
                 applicationMetrics.recordVoiceLlmCall(false, ApplicationMetrics.Outcome.SUCCESS);
@@ -850,18 +855,16 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
             }
 
             state.setAccumulatedText("");
-            recordTimerSinceNanos(ApplicationMetrics.VoiceTimer.TURN_DURATION, turnStartNanos, ApplicationMetrics.Outcome.SUCCESS);
-            applicationMetrics.recordVoiceTurn(ApplicationMetrics.Outcome.SUCCESS);
+            turnOutcome = ApplicationMetrics.Outcome.SUCCESS;
 
         } catch (Exception e) {
             log.error("Error triggering LLM response for session {}", sessionId, e);
-            recordTimerSinceNanos(ApplicationMetrics.VoiceTimer.TURN_DURATION, turnStartNanos, ApplicationMetrics.Outcome.FAILURE);
-            applicationMetrics.recordVoiceTurn(ApplicationMetrics.Outcome.FAILURE);
             applicationMetrics.recordVoiceError(ApplicationMetrics.VoiceErrorStage.TURN);
             if (session.isOpen()) {
                 sendError(session, "AI响应失败: " + e.getMessage());
             }
         } finally {
+            completeTurnTrace(sessionId, turnTrace, turnMode, turnOutcome);
             state.aiSpeaking.set(false);
             state.aiSpeakEndAt.set(System.currentTimeMillis() + AI_SPEAK_COOLDOWN_MS);
         }
@@ -995,6 +998,10 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         SessionState state = sessionStates.get(sessionId);
         if (state == null || !state.markFirstAudioSent()) {
             return;
+        }
+        VoiceTurnTrace turnTrace = state.currentTurn();
+        if (turnTrace != null) {
+            turnTrace.markFirstAudio();
         }
         recordTimerSinceNanos(
             ApplicationMetrics.VoiceTimer.FIRST_AUDIO,
@@ -1139,6 +1146,49 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
     ) {
         long elapsed = Math.max(0, System.nanoTime() - startNanos);
         applicationMetrics.recordVoiceTimer(timer, elapsed, TimeUnit.NANOSECONDS, outcome);
+    }
+
+    private void completeTurnTrace(String sessionId, VoiceTurnTrace turnTrace,
+                                   ApplicationMetrics.VoiceTurnMode turnMode,
+                                   ApplicationMetrics.Outcome turnOutcome) {
+        long turnDurationNanos = turnTrace.elapsedSinceStart();
+        recordTimerNanos(ApplicationMetrics.VoiceTimer.TURN_DURATION, turnDurationNanos, turnOutcome);
+        applicationMetrics.recordVoiceTurn(turnOutcome);
+
+        recordTurnStage(ApplicationMetrics.VoiceTurnStage.ASR_FINAL_TO_SUBMIT, turnMode,
+            turnTrace.asrFinalToSubmitNanos(), ApplicationMetrics.Outcome.SUCCESS);
+        recordTurnStage(ApplicationMetrics.VoiceTurnStage.LLM_FIRST_TOKEN, turnMode,
+            turnTrace.firstTokenLatencyNanos(), ApplicationMetrics.Outcome.SUCCESS);
+        recordTurnStage(ApplicationMetrics.VoiceTurnStage.FIRST_AUDIO, turnMode,
+            turnTrace.firstAudioLatencyNanos(), ApplicationMetrics.Outcome.SUCCESS);
+        applicationMetrics.recordVoiceTurnStage(
+            ApplicationMetrics.VoiceTurnStage.TURN_FINISHED,
+            turnMode,
+            turnDurationNanos,
+            turnOutcome
+        );
+
+        log.info("voice_turn_trace turnId={} sessionId={} mode={} status={} asrFinalToSubmitMs={} "
+                + "llmFirstTokenMs={} firstAudioMs={} turnDurationMs={}",
+            turnTrace.turnId(), sessionId, turnMode.value(), turnOutcome.value(),
+            turnTrace.asrFinalToSubmitMillis(), turnTrace.firstTokenLatencyMillis(),
+            turnTrace.firstAudioLatencyMillis(), TimeUnit.NANOSECONDS.toMillis(turnDurationNanos));
+    }
+
+    private void recordTurnStage(ApplicationMetrics.VoiceTurnStage stage,
+                                 ApplicationMetrics.VoiceTurnMode mode,
+                                 long elapsedNanos,
+                                 ApplicationMetrics.Outcome successOutcome) {
+        if (elapsedNanos < 0) {
+            applicationMetrics.recordVoiceTurnStage(stage, mode, -1, ApplicationMetrics.Outcome.SKIPPED);
+            return;
+        }
+        applicationMetrics.recordVoiceTurnStage(stage, mode, elapsedNanos, successOutcome);
+    }
+
+    private void recordTimerNanos(ApplicationMetrics.VoiceTimer timer, long elapsedNanos,
+                                  ApplicationMetrics.Outcome outcome) {
+        applicationMetrics.recordVoiceTimer(timer, Math.max(0, elapsedNanos), TimeUnit.NANOSECONDS, outcome);
     }
 
     private void recordTimerMillis(
@@ -1386,6 +1436,69 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         buf[pos + 1] = (byte) ((value >> 8) & 0xFF);
     }
 
+    private static final class VoiceTurnTrace {
+        private final String turnId = UUID.randomUUID().toString();
+        private final long turnStartedAtNanos;
+        private final long lastAsrFinalAtNanos;
+        private final AtomicLong firstTokenAtNanos = new AtomicLong(0);
+        private final AtomicLong firstAudioAtNanos = new AtomicLong(0);
+
+        private VoiceTurnTrace(long turnStartedAtNanos, long lastAsrFinalAtNanos) {
+            this.turnStartedAtNanos = turnStartedAtNanos;
+            this.lastAsrFinalAtNanos = lastAsrFinalAtNanos;
+        }
+
+        void markFirstToken() {
+            firstTokenAtNanos.compareAndSet(0, System.nanoTime());
+        }
+
+        void markFirstAudio() {
+            firstAudioAtNanos.compareAndSet(0, System.nanoTime());
+        }
+
+        String turnId() {
+            return turnId;
+        }
+
+        long elapsedSinceStart() {
+            return Math.max(0, System.nanoTime() - turnStartedAtNanos);
+        }
+
+        long asrFinalToSubmitNanos() {
+            return lastAsrFinalAtNanos > 0
+                ? Math.max(0, turnStartedAtNanos - lastAsrFinalAtNanos)
+                : -1;
+        }
+
+        long firstTokenLatencyNanos() {
+            return elapsedFrom(firstTokenAtNanos.get());
+        }
+
+        long firstAudioLatencyNanos() {
+            return elapsedFrom(firstAudioAtNanos.get());
+        }
+
+        long asrFinalToSubmitMillis() {
+            return toMillisOrMissing(asrFinalToSubmitNanos());
+        }
+
+        long firstTokenLatencyMillis() {
+            return toMillisOrMissing(firstTokenLatencyNanos());
+        }
+
+        long firstAudioLatencyMillis() {
+            return toMillisOrMissing(firstAudioLatencyNanos());
+        }
+
+        private long elapsedFrom(long eventAtNanos) {
+            return eventAtNanos > 0 ? Math.max(0, eventAtNanos - turnStartedAtNanos) : -1;
+        }
+
+        private long toMillisOrMissing(long elapsedNanos) {
+            return elapsedNanos < 0 ? -1 : TimeUnit.NANOSECONDS.toMillis(elapsedNanos);
+        }
+    }
+
     /**
      * Internal class to hold session state
      */
@@ -1402,9 +1515,12 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         private final AtomicLong mergeStartedAt = new AtomicLong(0);
         /** 最近一次 STT 活动时间（partial/final） */
         private final AtomicLong lastSttActivityAt = new AtomicLong(System.currentTimeMillis());
+        /** 最近一次 ASR 定稿时间，用于衡量定稿到用户提交的交互等待。 */
+        private final AtomicLong lastSttFinalAtNanos = new AtomicLong(0);
         /** 当前 Turn 起点，用于首音频延迟；开场 TTS 不属于用户 Turn。 */
         private final AtomicLong turnStartedAtNanos = new AtomicLong(0);
         private final AtomicBoolean firstAudioSent = new AtomicBoolean(false);
+        private final AtomicReference<VoiceTurnTrace> currentTurn = new AtomicReference<>();
         /** 当前正在执行 LLM+TTS 管线的虚拟线程，断连时可中断 */
         private volatile Thread processingThread = null;
 
@@ -1421,6 +1537,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                 return joinSegments(prev, s);
             });
             markSttActivity();
+            lastSttFinalAtNanos.set(System.nanoTime());
         }
 
         private static String joinSegments(String previous, String next) {
@@ -1454,6 +1571,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
             if (mergeStartedAt.get() == 0) {
                 mergeStartedAt.set(System.currentTimeMillis());
             }
+            lastSttFinalAtNanos.set(System.nanoTime());
         }
 
         String getMergeBufferPreviewWithPartial(String partial) {
@@ -1478,9 +1596,12 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
             lastSttActivityAt.set(System.currentTimeMillis());
         }
 
-        void beginTurn(long startNanos) {
+        VoiceTurnTrace beginTurn(long startNanos) {
             turnStartedAtNanos.set(startNanos);
             firstAudioSent.set(false);
+            VoiceTurnTrace trace = new VoiceTurnTrace(startNanos, lastSttFinalAtNanos.get());
+            currentTurn.set(trace);
+            return trace;
         }
 
         boolean markFirstAudioSent() {
@@ -1489,6 +1610,10 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
         long getTurnStartedAtNanos() {
             return turnStartedAtNanos.get();
+        }
+
+        VoiceTurnTrace currentTurn() {
+            return currentTurn.get();
         }
 
         long getMergeStartedAt() {

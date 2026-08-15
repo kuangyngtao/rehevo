@@ -121,6 +121,22 @@ public class ApplicationMetrics {
     increment(AppMetricNames.VOICE_TURN_COMPLETED, statusTags(outcome));
   }
 
+  /**
+   * 记录语音回合关键阶段。turnId 仅写日志关联，绝不作为 Prometheus 标签。
+   */
+  public void recordVoiceTurnStage(VoiceTurnStage stage, VoiceTurnMode mode,
+                                   long elapsedNanos, Outcome outcome) {
+    Tags tags = Tags.of(
+        AppMetricNames.TAG_STAGE, stage.value(),
+        AppMetricNames.TAG_MODE, mode.value(),
+        AppMetricNames.TAG_STATUS, outcome.value()
+    );
+    increment(AppMetricNames.VOICE_TURN_STAGE_TOTAL, tags);
+    if (elapsedNanos >= 0) {
+      record(AppMetricNames.VOICE_TURN_STAGE_LATENCY, tags, elapsedNanos, TimeUnit.NANOSECONDS);
+    }
+  }
+
   public void recordVoiceCancellation() {
     increment(AppMetricNames.VOICE_TURN_CANCELLED, statusTags(Outcome.DISCARDED));
   }
@@ -266,6 +282,40 @@ public class ApplicationMetrics {
     }
 
     String value() {
+      return value;
+    }
+  }
+
+  public enum VoiceTurnStage {
+    ASR_FINAL_TO_SUBMIT("asr_final_to_submit"),
+    LLM_FIRST_TOKEN("llm_first_token"),
+    FIRST_AUDIO("first_audio"),
+    TURN_FINISHED("turn_finished");
+
+    private final String value;
+
+    VoiceTurnStage(String value) {
+      this.value = value;
+    }
+
+    public String value() {
+      return value;
+    }
+  }
+
+  public enum VoiceTurnMode {
+    STREAM("stream"),
+    FALLBACK("fallback"),
+    NON_STREAMING("non_streaming"),
+    UNKNOWN("unknown");
+
+    private final String value;
+
+    VoiceTurnMode(String value) {
+      this.value = value;
+    }
+
+    public String value() {
       return value;
     }
   }

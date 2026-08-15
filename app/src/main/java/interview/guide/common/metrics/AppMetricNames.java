@@ -18,6 +18,7 @@ public final class AppMetricNames {
   public static final String TAG_INTERACTION = "interaction";
   public static final String TAG_STREAMING = "streaming";
   public static final String TAG_STAGE = "stage";
+  public static final String TAG_MODE = "mode";
 
   public static final String RAG_VECTORIZATION = "app.rag.vectorization";
   public static final String RAG_VECTORIZATION_TOTAL = "app.rag.vectorization.total";
@@ -52,6 +53,8 @@ public final class AppMetricNames {
   public static final String VOICE_TTS_EMPTY_AUDIO = "app.voice.interview.tts.empty_audio";
   public static final String VOICE_TURN_DURATION = "app.voice.interview.turn.duration";
   public static final String VOICE_TURN_COMPLETED = "app.voice.interview.turn.completed";
+  public static final String VOICE_TURN_STAGE_LATENCY = "app.voice.interview.turn.stage_latency";
+  public static final String VOICE_TURN_STAGE_TOTAL = "app.voice.interview.turn.stage_total";
   public static final String VOICE_TURN_CANCELLED = "app.voice.interview.turn.cancelled";
   public static final String VOICE_ERRORS = "app.voice.interview.errors";
 }
