@@ -16,9 +16,9 @@ class QwenTtsServiceTest {
     void setUp() {
         VoiceInterviewProperties properties = new VoiceInterviewProperties();
         VoiceInterviewProperties.QwenTtsConfig tts = properties.getQwen().getTts();
-        tts.setModel("qwen3-tts-flash-realtime");
+        tts.setModel("qwen-audio-3.0-tts-flash");
         tts.setApiKey("test-api-key");
-        tts.setVoice("Cherry");
+        tts.setVoice("longanhuan_v3.6");
         tts.setFormat("pcm");
         tts.setSampleRate(16000);
         tts.setMode("server_commit");

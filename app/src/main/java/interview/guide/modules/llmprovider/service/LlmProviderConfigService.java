@@ -28,6 +28,8 @@ import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.http.client.InetAddressFilter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.YamlMapFactoryBean;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
@@ -48,6 +50,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -112,6 +118,97 @@ public class LlmProviderConfigService {
   void validateWritablePaths() {
     ensureParentWritable(yamlPath, "config-yaml-path");
     ensureParentWritable(envPath, "config-env-path");
+    loadVoiceConfigFromYaml();
+  }
+
+  private void loadVoiceConfigFromYaml() {
+    if (yamlPath == null || yamlPath.isBlank()) {
+      return;
+    }
+    Path path = Path.of(yamlPath);
+    if (!Files.isRegularFile(path)) {
+      return;
+    }
+    try {
+      YamlMapFactoryBean yamlFactory = new YamlMapFactoryBean();
+      yamlFactory.setResources(new FileSystemResource(path));
+      Map<String, Object> root = yamlFactory.getObject();
+      Map<?, ?> app = childMap(root, "app");
+      Map<?, ?> voiceInterview = childMap(app, "voice-interview");
+      Map<?, ?> qwen = childMap(voiceInterview, "qwen");
+      Map<?, ?> asrValues = childMap(qwen, "asr");
+      Map<?, ?> ttsValues = childMap(qwen, "tts");
+      if (asrValues == null && ttsValues == null) {
+        return;
+      }
+
+      VoiceInterviewProperties.AsrConfig asr = voiceProperties.getQwen().getAsr();
+      VoiceInterviewProperties.QwenTtsConfig tts = voiceProperties.getQwen().getTts();
+      if (asrValues != null) {
+        asr.setUrl(stringValue(asrValues, "url", asr.getUrl()));
+        asr.setModel(stringValue(asrValues, "model", asr.getModel()));
+        asr.setLanguage(stringValue(asrValues, "language", asr.getLanguage()));
+        asr.setFormat(stringValue(asrValues, "format", asr.getFormat()));
+        asr.setSampleRate(intValue(asrValues, "sample-rate", asr.getSampleRate()));
+        asr.setEnableTurnDetection(booleanValue(
+            asrValues, "enable-turn-detection", asr.isEnableTurnDetection()));
+        asr.setTurnDetectionType(stringValue(
+            asrValues, "turn-detection-type", asr.getTurnDetectionType()));
+        asr.setTurnDetectionThreshold(floatValue(
+            asrValues, "turn-detection-threshold", asr.getTurnDetectionThreshold()));
+        asr.setTurnDetectionSilenceDurationMs(intValue(
+            asrValues, "turn-detection-silence-duration-ms", asr.getTurnDetectionSilenceDurationMs()));
+      }
+      if (ttsValues != null) {
+        tts.setModel(stringValue(ttsValues, "model", tts.getModel()));
+        tts.setVoice(stringValue(ttsValues, "voice", tts.getVoice()));
+        tts.setFormat(stringValue(ttsValues, "format", tts.getFormat()));
+        tts.setSampleRate(intValue(ttsValues, "sample-rate", tts.getSampleRate()));
+        tts.setMode(stringValue(ttsValues, "mode", tts.getMode()));
+        tts.setLanguageType(stringValue(ttsValues, "language-type", tts.getLanguageType()));
+        tts.setSpeechRate(floatValue(ttsValues, "speech-rate", tts.getSpeechRate()));
+        tts.setVolume(intValue(ttsValues, "volume", tts.getVolume()));
+      }
+      asrService.reload(voiceProperties);
+      ttsService.reload(voiceProperties);
+      log.info("Loaded persisted voice configuration from {}", path);
+    } catch (Exception e) {
+      log.warn("Failed to load persisted voice configuration from {}; using application defaults", path, e);
+    }
+  }
+
+  private static Map<?, ?> childMap(Map<?, ?> parent, String key) {
+    if (parent == null) {
+      return null;
+    }
+    Object value = parent.get(key);
+    return value instanceof Map<?, ?> map ? map : null;
+  }
+
+  private static String stringValue(Map<?, ?> values, String key, String fallback) {
+    Object value = values.get(key);
+    return value == null ? fallback : String.valueOf(value);
+  }
+
+  private static int intValue(Map<?, ?> values, String key, int fallback) {
+    Object value = values.get(key);
+    if (value instanceof Number number) {
+      return number.intValue();
+    }
+    return value == null ? fallback : Integer.parseInt(String.valueOf(value));
+  }
+
+  private static float floatValue(Map<?, ?> values, String key, float fallback) {
+    Object value = values.get(key);
+    if (value instanceof Number number) {
+      return number.floatValue();
+    }
+    return value == null ? fallback : Float.parseFloat(String.valueOf(value));
+  }
+
+  private static boolean booleanValue(Map<?, ?> values, String key, boolean fallback) {
+    Object value = values.get(key);
+    return value == null ? fallback : Boolean.parseBoolean(String.valueOf(value));
   }
 
   private void ensureParentWritable(String rawPath, String label) {
@@ -288,28 +385,74 @@ public class LlmProviderConfigService {
 
   public ProviderTestResult testAsrConfig() {
     rwLock.readLock().lock();
+    String sessionId = "config-test-" + UUID.randomUUID();
     try {
       VoiceInterviewProperties.AsrConfig asr = voiceProperties.getQwen().getAsr();
+      CountDownLatch readyLatch = new CountDownLatch(1);
+      AtomicReference<Throwable> errorRef = new AtomicReference<>();
       try {
-        java.net.URI wsUri = java.net.URI.create(asr.getUrl());
-        String host = wsUri.getHost();
-        int port = wsUri.getPort() > 0 ? wsUri.getPort() : (wsUri.getScheme().equals("wss") ? 443 : 80);
-        java.net.InetSocketAddress address = new java.net.InetSocketAddress(host, port);
-        java.net.Socket socket = new java.net.Socket();
-        socket.connect(address, 5000);
-        socket.close();
+        asrService.startTranscription(
+            sessionId,
+            ignored -> { },
+            ignored -> { },
+            readyLatch::countDown,
+            error -> {
+              errorRef.set(error);
+              readyLatch.countDown();
+            });
+        if (!readyLatch.await(10, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("等待 ASR 模型建立会话超时");
+        }
+        if (errorRef.get() != null) {
+          throw new IllegalStateException(errorRef.get().getMessage(), errorRef.get());
+        }
         return ProviderTestResult.builder()
             .success(true)
-            .message("ASR WebSocket 连接成功: " + host)
+            .message("ASR 模型会话建立成功")
             .model(asr.getModel())
             .build();
       } catch (Exception e) {
+        if (e instanceof InterruptedException) {
+          Thread.currentThread().interrupt();
+        }
         return ProviderTestResult.builder()
             .success(false)
             .message("ASR 连接失败: " + e.getMessage())
             .model(asr.getModel())
             .build();
+      } finally {
+        if (asrService.hasActiveSession(sessionId)) {
+          asrService.stopTranscription(sessionId);
+        }
       }
+    } finally {
+      rwLock.readLock().unlock();
+    }
+  }
+
+  public ProviderTestResult testTtsConfig() {
+    rwLock.readLock().lock();
+    try {
+      VoiceInterviewProperties.QwenTtsConfig tts = voiceProperties.getQwen().getTts();
+      byte[] audio = ttsService.synthesize("你好");
+      if (audio.length == 0) {
+        return ProviderTestResult.builder()
+            .success(false)
+            .message("TTS 模型未返回音频")
+            .model(tts.getModel())
+            .build();
+      }
+      return ProviderTestResult.builder()
+          .success(true)
+          .message("TTS 合成成功，返回 " + audio.length + " 字节音频")
+          .model(tts.getModel())
+          .build();
+    } catch (Exception e) {
+      return ProviderTestResult.builder()
+          .success(false)
+          .message("TTS 连接失败: " + e.getMessage())
+          .model(voiceProperties.getQwen().getTts().getModel())
+          .build();
     } finally {
       rwLock.readLock().unlock();
     }

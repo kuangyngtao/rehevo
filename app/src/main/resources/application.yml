@@ -247,11 +247,11 @@ app:
     tts:
       default-voice: ${APP_VOICE_INTERVIEW_TTS_DEFAULT_VOICE:siyue}  # 思悦 - 温柔自然的女声
 
-    # Qwen3 Realtime ASR Configuration
+    # Qwen-Audio 3.0 streaming ASR/TTS configuration
     qwen:
       asr:
-        url: wss://dashscope.aliyuncs.com/api-ws/v1/realtime
-        model: qwen3-asr-flash-realtime
+        url: wss://dashscope.aliyuncs.com/api-ws/v1/inference
+        model: qwen-audio-3.0-asr-flash-streaming
         api-key: ${AI_BAILIAN_API_KEY:${ALI-API-KEY:}}
         language: zh
         format: pcm
@@ -262,12 +262,11 @@ app:
         # 静音多久判为一句结束；中文面试思考停顿常见 2-3s，设 2000 避免句中切段
         turn-detection-silence-duration-ms: ${APP_VOICE_ASR_SILENCE_MS:2000}
 
-      # Qwen TTS Realtime Configuration (WebSocket-based)
-      # 音色列表文档：https://help.aliyun.com/zh/model-studio/qwen-tts-realtime
+      # 音色列表文档：https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list
       tts:
-        model: qwen3-tts-flash-realtime
+        model: qwen-audio-3.0-tts-flash
         api-key: ${AI_BAILIAN_API_KEY:${ALI-API-KEY:}}
-        voice: Cherry
+        voice: longanhuan_v3.6
         format: pcm
         sample-rate: 24000
         mode: commit

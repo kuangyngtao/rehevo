@@ -22,8 +22,8 @@ class QwenAsrServiceTest {
     void setUp() {
         VoiceInterviewProperties properties = new VoiceInterviewProperties();
         VoiceInterviewProperties.AsrConfig asr = properties.getQwen().getAsr();
-        asr.setUrl("wss://dashscope.aliyuncs.com/api-ws/v1/realtime");
-        asr.setModel("qwen3-asr-flash-realtime");
+        asr.setUrl("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+        asr.setModel("qwen-audio-3.0-asr-flash-streaming");
         asr.setApiKey("test-api-key");
         asr.setLanguage("zh");
         asr.setFormat("pcm");

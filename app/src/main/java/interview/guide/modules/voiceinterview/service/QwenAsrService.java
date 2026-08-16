@@ -1,12 +1,11 @@
 package interview.guide.modules.voiceinterview.service;
 
-import com.alibaba.dashscope.audio.omni.OmniRealtimeCallback;
-import com.alibaba.dashscope.audio.omni.OmniRealtimeConfig;
-import com.alibaba.dashscope.audio.omni.OmniRealtimeConversation;
-import com.alibaba.dashscope.audio.omni.OmniRealtimeModality;
-import com.alibaba.dashscope.audio.omni.OmniRealtimeParam;
-import com.alibaba.dashscope.audio.omni.OmniRealtimeTranscriptionParam;
-import com.alibaba.dashscope.exception.NoApiKeyException;
+import com.alibaba.dashscope.audio.asr.recognition.Recognition;
+import com.alibaba.dashscope.audio.asr.recognition.RecognitionParam;
+import com.alibaba.dashscope.audio.asr.recognition.RecognitionResult;
+import com.alibaba.dashscope.common.ResultCallback;
+import com.alibaba.dashscope.common.Status;
+import com.alibaba.dashscope.utils.Constants;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import interview.guide.modules.voiceinterview.config.VoiceInterviewProperties;
@@ -15,8 +14,8 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import java.util.Base64;
-import java.util.Collections;
+import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,9 +24,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * Qwen3 Realtime ASR Service
+ * Qwen Audio streaming ASR service.
  *
- * Provides real-time speech recognition using Alibaba Cloud DashScope's qwen3-asr-flash-realtime model.
+ * Provides real-time speech recognition using DashScope's generic streaming ASR protocol.
  * This service manages WebSocket connections for multiple concurrent sessions and handles
  * audio transcription with server-side Voice Activity Detection (VAD).
  *
@@ -38,13 +37,13 @@ import java.util.function.Consumer;
  * - Automatic resource cleanup on session termination
  *
  * Configuration:
- * - Model: qwen3-asr-flash-realtime
+ * - Model: qwen-audio-3.0-asr-flash-streaming
  * - Audio format: PCM, 16kHz sample rate
  * - Language: Chinese (zh)
  * - VAD: Enabled with server_vad type
  *
- * @see OmniRealtimeConversation
- * @see OmniRealtimeCallback
+ * @see Recognition
+ * @see ResultCallback
  */
 @Slf4j
 @Service
@@ -96,7 +95,7 @@ public class QwenAsrService {
     /**
      * Active ASR sessions map.
      * Key: session ID (user-provided identifier)
-     * Value: AsrSession containing the OmniRealtimeConversation instance and callbacks
+     * Value: AsrSession containing the Recognition instance and callbacks
      */
     private final Map<String, AsrSession> sessions = new ConcurrentHashMap<>();
 
@@ -224,46 +223,70 @@ public class QwenAsrService {
         }
 
         try {
-            // Build OmniRealtimeParam with connection settings
-            OmniRealtimeParam param = OmniRealtimeParam.builder()
+            if (url != null && !url.isBlank()) {
+                Constants.baseWebsocketApiUrl = url;
+            }
+            RecognitionParam.RecognitionParamBuilder<?, ?> paramBuilder = RecognitionParam.builder()
                     .model(model)
-                    .url(url)
-                    .apikey(apiKey)
-                    .build();
+                    .apiKey(apiKey)
+                    .format(format)
+                    .sampleRate(sampleRate);
+            if (language != null && !language.isBlank()) {
+                paramBuilder.parameter("language_hints", List.of(language));
+            }
+            RecognitionParam param = paramBuilder.build();
+            Recognition recognizer = new Recognition();
+            final AtomicReference<Recognition> recognizerRef = new AtomicReference<>(recognizer);
 
-            final AtomicReference<OmniRealtimeConversation> conversationRef = new AtomicReference<>();
-
-            // Create callback handler for WebSocket events
-            OmniRealtimeCallback callback = new OmniRealtimeCallback() {
+            ResultCallback<RecognitionResult> callback = new ResultCallback<>() {
                 @Override
-                public void onOpen() {
-                    log.debug("[Session: {}] WebSocket connection established", sessionId);
+                public void onOpen(Status status) {
+                    log.debug("[Session: {}] ASR WebSocket opened: {}", sessionId, status);
                 }
 
                 @Override
-                public void onEvent(JsonObject message) {
-                    handleServerEvent(sessionId, message, onFinal, onPartial, onError);
+                public void onEvent(RecognitionResult result) {
+                    if (result == null || result.getSentence() == null) {
+                        return;
+                    }
+                    String text = result.getSentence().getText();
+                    if (text == null || text.isBlank()) {
+                        return;
+                    }
+                    if (result.isSentenceEnd()) {
+                        onFinal.accept(text);
+                    } else if (onPartial != null) {
+                        onPartial.accept(text);
+                    }
                 }
 
                 @Override
-                public void onClose(int code, String reason) {
-                    OmniRealtimeConversation closed = conversationRef.get();
-                    log.warn("[Session: {}] DashScope ASR WebSocket closed - code: {}, reason: {}",
-                            sessionId, code, reason);
-                    // 仅移除与本次连接对应的会话，避免重连后旧 onClose 误删新连接（典型「第三轮起无声」根因）
+                public void onComplete() {
+                    Recognition completed = recognizerRef.get();
+                    log.debug("[Session: {}] ASR stream completed", sessionId);
                     sessions.compute(sessionId, (id, existing) -> {
-                        if (existing != null && closed != null && existing.getConversation() == closed) {
+                        if (existing != null && existing.getRecognizer() == completed) {
                             return null;
                         }
                         return existing;
                     });
                 }
+
+                @Override
+                public void onError(Exception error) {
+                    Recognition failed = recognizerRef.get();
+                    sessions.compute(sessionId, (id, existing) -> {
+                        if (existing != null && existing.getRecognizer() == failed) {
+                            return null;
+                        }
+                        return existing;
+                    });
+                    log.error("[Session: {}] DashScope ASR failed", sessionId, error);
+                    onError.accept(error);
+                }
             };
 
-            // Create OmniRealtimeConversation instance
-            OmniRealtimeConversation conversation = new OmniRealtimeConversation(param, callback);
-            conversationRef.set(conversation);
-            AsrSession asrSession = new AsrSession(conversation, onFinal, onPartial, onError);
+            AsrSession asrSession = new AsrSession(recognizer, onFinal, onPartial, onError);
 
             // Store session in map BEFORE connecting to ensure hasActiveSession() returns true
             sessions.put(sessionId, asrSession);
@@ -271,25 +294,7 @@ public class QwenAsrService {
             // Connect to server asynchronously (non-blocking)
             Thread connectionThread = new Thread(() -> {
                 try {
-                    conversation.connect();
-
-                    // Configure session with transcription parameters
-                    OmniRealtimeTranscriptionParam transcriptionParam = new OmniRealtimeTranscriptionParam();
-                    transcriptionParam.setLanguage(language);
-                    transcriptionParam.setInputSampleRate(sampleRate);
-                    transcriptionParam.setInputAudioFormat(format);
-
-                    OmniRealtimeConfig config = OmniRealtimeConfig.builder()
-                            .modalities(Collections.singletonList(OmniRealtimeModality.TEXT))
-                            .enableTurnDetection(enableTurnDetection)
-                            .turnDetectionType(turnDetectionType)
-                            .turnDetectionThreshold(turnDetectionThreshold)
-                            .turnDetectionSilenceDurationMs(turnDetectionSilenceDurationMs)
-                            .transcriptionConfig(transcriptionParam)
-                            .build();
-
-                    // Update session with configuration
-                    conversation.updateSession(config);
+                    recognizer.call(param, callback);
                     if (sessions.get(sessionId) != asrSession) {
                         log.debug("[Session: {}] Ignoring stale ASR connection ready callback", sessionId);
                         return;
@@ -304,7 +309,7 @@ public class QwenAsrService {
                 } catch (Exception e) {
                     log.error("[Session: {}] Failed to establish connection", sessionId, e);
                     sessions.compute(sessionId, (id, existing) -> {
-                        if (existing != null && existing.getConversation() == conversation) {
+                        if (existing != null && existing.getRecognizer() == recognizer) {
                             return null;
                         }
                         return existing;
@@ -353,11 +358,7 @@ public class QwenAsrService {
         }
 
         try {
-            // Convert audio data to Base64
-            String audioBase64 = Base64.getEncoder().encodeToString(audioData);
-
-            // Send to ASR service
-            session.getConversation().appendAudio(audioBase64);
+            session.getRecognizer().sendAudioFrame(ByteBuffer.wrap(audioData));
 
             log.trace("[Session: {}] Sent {} bytes of audio data", sessionId, audioData.length);
 
@@ -387,17 +388,14 @@ public class QwenAsrService {
             }
 
             try {
-                session.getConversation().endSession();
+                session.getRecognizer().stop();
                 log.info("[Session: {}] Transcription session stopped", sessionId);
-            } catch (InterruptedException e) {
-                log.error("[Session: {}] Thread interrupted while ending session", sessionId, e);
-                Thread.currentThread().interrupt();
             } catch (Exception e) {
                 log.warn("[Session: {}] Error while ending session (may already be closed): {}", sessionId, e.getMessage());
             }
 
             try {
-                session.getConversation().close();
+                session.getRecognizer().getDuplexApi().close(1000, "client stop");
             } catch (Exception e) {
                 log.debug("[Session: {}] Connection already closed: {}", sessionId, e.getMessage());
             }
@@ -607,25 +605,25 @@ public class QwenAsrService {
      * Internal class to hold session data.
      */
     private static class AsrSession {
-        private final OmniRealtimeConversation conversation;
+        private final Recognition recognizer;
         private final Consumer<String> onFinal;
         private final Consumer<String> onPartial;
         private final Consumer<Throwable> onError;
         private final CountDownLatch readyLatch = new CountDownLatch(1);
 
         AsrSession(
-                OmniRealtimeConversation conversation,
+                Recognition recognizer,
                 Consumer<String> onFinal,
                 Consumer<String> onPartial,
                 Consumer<Throwable> onError) {
-            this.conversation = conversation;
+            this.recognizer = recognizer;
             this.onFinal = onFinal;
             this.onPartial = onPartial;
             this.onError = onError;
         }
 
-        public OmniRealtimeConversation getConversation() {
-            return conversation;
+        public Recognition getRecognizer() {
+            return recognizer;
         }
 
         public Consumer<Throwable> getOnError() {

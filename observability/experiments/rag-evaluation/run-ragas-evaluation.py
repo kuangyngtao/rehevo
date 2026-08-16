@@ -94,7 +94,7 @@ def main() -> int:
   parser.add_argument("--request-timeout", type=int, default=1800)
   parser.add_argument("--judge-api-key-env", default="RAGAS_JUDGE_API_KEY")
   parser.add_argument("--judge-base-url", default="https://dashscope.aliyuncs.com/compatible-mode/v1")
-  parser.add_argument("--judge-model", default="qwen-plus")
+  parser.add_argument("--judge-model", default="qwen3.7-plus")
   parser.add_argument("--judge-timeout", type=int, default=120)
   parser.add_argument("--judge-workers", type=int, default=4)
   parser.add_argument("--judge-max-tokens", type=int, default=8192)
@@ -231,7 +231,7 @@ def main() -> int:
     from ragas import evaluate
     from ragas.dataset_schema import EvaluationDataset, SingleTurnSample
     from ragas.llms import llm_factory
-    from ragas.metrics import ContextPrecision, ContextRecall, Faithfulness
+    from ragas.metrics.collections import ContextPrecision, ContextRecall, Faithfulness
     from ragas.run_config import RunConfig
   except ImportError as error:
     raise RuntimeError("缺少 RAGAS 依赖，请先安装 requirements-ragas.txt") from error
@@ -253,6 +253,7 @@ def main() -> int:
     client=OpenAI(api_key=api_key, base_url=arguments.judge_base_url),
     temperature=0,
     max_tokens=arguments.judge_max_tokens,
+    extra_body={"enable_thinking": False},
   )
   result = evaluate(
     EvaluationDataset(samples=samples),

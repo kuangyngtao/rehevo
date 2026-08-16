@@ -94,6 +94,45 @@ class LlmProviderConfigServiceTest {
 
             assertThrows(BusinessException.class, failing::validateWritablePaths);
         }
+
+        @Test
+        @DisplayName("启动时恢复持久化的语音模型配置")
+        void loadsPersistedVoiceConfig(@TempDir Path tempDir) throws IOException {
+            Path yamlFile = tempDir.resolve("llm-providers.yml");
+            Files.writeString(yamlFile, """
+                app:
+                  voice-interview:
+                    qwen:
+                      asr:
+                        url: wss://workspace.example.com/api-ws/v1/inference
+                        model: qwen-audio-3.0-asr-flash-streaming
+                        sample-rate: 16000
+                      tts:
+                        model: qwen-audio-3.0-tts-flash
+                        voice: longanhuan_v3.6
+                        sample-rate: 24000
+                """);
+            when(properties.getConfigYamlPath()).thenReturn(yamlFile.toString());
+            when(properties.getConfigEnvPath()).thenReturn(tempDir.resolve("llm-providers.env").toString());
+            VoiceInterviewProperties persistedProperties = new VoiceInterviewProperties();
+            LlmProviderConfigService loader = new LlmProviderConfigService(
+                properties, registry, persistedProperties, asrService, ttsService);
+
+            loader.validateWritablePaths();
+
+            assertEquals(
+                "wss://workspace.example.com/api-ws/v1/inference",
+                persistedProperties.getQwen().getAsr().getUrl());
+            assertEquals(
+                "qwen-audio-3.0-asr-flash-streaming",
+                persistedProperties.getQwen().getAsr().getModel());
+            assertEquals(
+                "qwen-audio-3.0-tts-flash",
+                persistedProperties.getQwen().getTts().getModel());
+            assertEquals("longanhuan_v3.6", persistedProperties.getQwen().getTts().getVoice());
+            verify(asrService).reload(persistedProperties);
+            verify(ttsService).reload(persistedProperties);
+        }
     }
 
     @Nested

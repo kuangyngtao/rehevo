@@ -49,7 +49,8 @@ def main() -> int:
   parser.add_argument("--max-batches", type=int, default=0, help="本次最多处理多少批，0 表示直到完成")
   parser.add_argument("--judge-api-key-env", default="RAGAS_JUDGE_API_KEY")
   parser.add_argument("--judge-base-url", default="https://dashscope.aliyuncs.com/compatible-mode/v1")
-  parser.add_argument("--judge-model", default="qwen-plus")
+  parser.add_argument("--judge-model", default="qwen3.7-plus")
+  parser.add_argument("--output-dir", type=Path, help="分数输出目录，默认写到输入文件所在目录")
   parser.add_argument("--judge-timeout", type=int, default=180)
   parser.add_argument("--judge-workers", type=int, default=4)
   parser.add_argument("--judge-max-tokens", type=int, default=8192)
@@ -70,11 +71,27 @@ def main() -> int:
   from ragas import evaluate
   from ragas.dataset_schema import EvaluationDataset, SingleTurnSample
   from ragas.llms import llm_factory
-  from ragas.metrics import ContextPrecision, ContextRecall, Faithfulness
+  from ragas.metrics.collections import ContextPrecision, ContextRecall, Faithfulness
   from ragas.run_config import RunConfig
 
-  score_path = arguments.input.parent / "ragas-scores.jsonl"
-  summary_path = arguments.input.parent / "summary.json"
+  output_dir = arguments.output_dir or arguments.input.parent
+  output_dir.mkdir(parents=True, exist_ok=True)
+  score_path = output_dir / "ragas-scores.jsonl"
+  summary_path = output_dir / "summary.json"
+  judge_path = output_dir / "judge.json"
+  judge_config = {
+    "model": arguments.judge_model,
+    "baseUrl": arguments.judge_base_url,
+    "temperature": 0,
+    "enableThinking": False,
+    "maxTokens": arguments.judge_max_tokens,
+  }
+  if judge_path.exists():
+    existing_judge = json.loads(judge_path.read_text(encoding="utf-8"))
+    if existing_judge != judge_config:
+      raise ValueError("输出目录中的 judge.json 与本次评审配置不一致")
+  else:
+    judge_path.write_text(json.dumps(judge_config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
   score_rows = read_jsonl(score_path)
   completed_ids = {row["caseId"] for row in score_rows if is_complete_score(row)}
   pending = [row for row in rows if row["caseId"] not in completed_ids]
@@ -89,6 +106,7 @@ def main() -> int:
     client=OpenAI(api_key=api_key, base_url=arguments.judge_base_url),
     temperature=0,
     max_tokens=arguments.judge_max_tokens,
+    extra_body={"enable_thinking": False},
   )
   batches_processed = 0
   for offset in range(0, len(pending), arguments.batch_size):

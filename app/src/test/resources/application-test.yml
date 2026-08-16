@@ -132,8 +132,8 @@ app:
 
     qwen:
       asr:
-        url: wss://dashscope.aliyuncs.com/api-ws/v1/realtime
-        model: qwen3-asr-flash-realtime
+        url: wss://dashscope.aliyuncs.com/api-ws/v1/inference
+        model: qwen-audio-3.0-asr-flash-streaming
         api-key: test-api-key
         language: zh
         format: pcm
@@ -144,10 +144,10 @@ app:
         turn-detection-silence-duration-ms: 1000
 
       tts:
-        url: wss://dashscope.aliyuncs.com/api-ws/v1/realtime
-        model: qwen3-tts-flash-realtime
+        url: wss://dashscope.aliyuncs.com/api-ws/v1/inference
+        model: qwen-audio-3.0-tts-flash
         api-key: test-api-key
-        voice: Cherry
+        voice: longanhuan_v3.6
         format: pcm
         sample-rate: 16000
         mode: server_commit

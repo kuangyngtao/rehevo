@@ -125,7 +125,7 @@ public class VoiceInterviewProperties {
     @Data
     public static class AsrConfig {
         private String url = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime";
-        private String model = "qwen3-asr-flash-realtime";
+        private String model = "qwen-audio-3.0-asr-flash-streaming";
         private String apiKey;
         private String language = "zh";
         private String format = "pcm";
@@ -138,9 +138,9 @@ public class VoiceInterviewProperties {
 
     @Data
     public static class QwenTtsConfig {
-        private String model = "qwen3-tts-flash-realtime";
+        private String model = "qwen-audio-3.0-tts-flash";
         private String apiKey;
-        private String voice = "Cherry";
+        private String voice = "longanhuan_v3.6";
         private String format = "pcm";
         private int sampleRate = 24000;
         private String mode = "commit";

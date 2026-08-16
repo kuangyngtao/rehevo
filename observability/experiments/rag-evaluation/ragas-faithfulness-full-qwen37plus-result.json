@@ -1,0 +1,49 @@
+{
+  "dataset": "rehevo-gold-v1.jsonl",
+  "caseCount": 45,
+  "answerModel": "qwen3.7-flash-2026-07-15",
+  "retrievalMode": "HYBRID",
+  "rewriteEnabled": false,
+  "ragasVersion": "0.4.3",
+  "judge": {
+    "model": "qwen3.7-plus",
+    "temperature": 0,
+    "enableThinking": false,
+    "maxTokens": 8192
+  },
+  "scores": {
+    "faithfulness": 0.9767797017797017,
+    "contextPrecision": 0.9740740739842593,
+    "contextRecall": 0.9888888888888889
+  },
+  "categories": {
+    "fact_lookup": {
+      "caseCount": 15,
+      "faithfulness": 1.0,
+      "contextPrecision": 0.9888888887994444,
+      "contextRecall": 1.0
+    },
+    "multi_hop": {
+      "caseCount": 15,
+      "faithfulness": 0.9781986531986532,
+      "contextPrecision": 0.9666666665766667,
+      "contextRecall": 0.9666666666666667
+    },
+    "semantic_paraphrase": {
+      "caseCount": 15,
+      "faithfulness": 0.9521404521404521,
+      "contextPrecision": 0.9666666665766667,
+      "contextRecall": 1.0
+    }
+  },
+  "sharedJudgeComparison": {
+    "caseCount": 39,
+    "oldJudgeModel": "qwen-plus",
+    "faithfulnessDelta": 0.010277884508653634,
+    "contextPrecisionDelta": -0.012820512832478759,
+    "contextRecallDelta": -0.012820512820512775
+  },
+  "complete": true,
+  "allMetricsFinite": true,
+  "localEvidenceDir": "runs/ragas-faithfulness-full-qwen37plus-20260817"
+}
