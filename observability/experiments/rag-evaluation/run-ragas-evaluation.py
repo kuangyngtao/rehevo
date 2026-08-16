@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""调用 Rehevo 评测回答接口，并以 RAGAS 对可回答 Gold 样本离线评分。"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+  with path.open("r", encoding="utf-8") as file:
+    return [json.loads(line) for line in file if line.strip()]
+
+
+def post_json(url: str, payload: dict[str, Any], timeout: int) -> dict[str, Any]:
+  request = urllib.request.Request(
+    url,
+    data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+    headers={"Content-Type": "application/json"},
+    method="POST",
+  )
+  try:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+      body = json.loads(response.read().decode("utf-8"))
+  except urllib.error.HTTPError as error:
+    detail = error.read().decode("utf-8", errors="replace")
+    raise RuntimeError(f"评测回答接口 HTTP {error.code}: {detail}") from error
+  if body.get("code") != 200 or not isinstance(body.get("data"), dict):
+    raise RuntimeError(f"评测回答接口失败: {body}")
+  return body["data"]
+
+
+def chunked(items: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]]:
+  return [items[index:index + size] for index in range(0, len(items), size)]
+
+
+def context_id(evidence: dict[str, Any]) -> str:
+  return f"{evidence.get('documentSha256')}:{evidence.get('chunkIndex')}"
+
+
+def finite_mean(values: list[Any]) -> float | None:
+  valid = [float(value) for value in values if value is not None and math.isfinite(float(value))]
+  return sum(valid) / len(valid) if valid else None
+
+
+def git_revision() -> str | None:
+  try:
+    return subprocess.check_output(
+      ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+    ).strip()
+  except (OSError, subprocess.CalledProcessError):
+    return None
+
+
+def main() -> int:
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument("--dataset", type=Path, default=Path("rehevo-gold-v1.jsonl"))
+  parser.add_argument("--knowledge-base-ids", default="2,3,4,5,6,7")
+  parser.add_argument("--api-base-url", default="http://localhost:8080")
+  parser.add_argument("--rewrite", action="store_true", help="评测 Query Rewrite + 向量检索；默认关闭以匹配当前检索基线")
+  parser.add_argument("--limit", type=int, default=0, help="最多运行多少条可回答样本，0 表示全部")
+  parser.add_argument("--batch-size", type=int, default=30)
+  parser.add_argument("--request-timeout", type=int, default=1800)
+  parser.add_argument("--judge-api-key-env", default="RAGAS_JUDGE_API_KEY")
+  parser.add_argument("--judge-base-url", default="https://dashscope.aliyuncs.com/compatible-mode/v1")
+  parser.add_argument("--judge-model", default="qwen-plus")
+  parser.add_argument("--judge-timeout", type=int, default=120)
+  parser.add_argument("--judge-workers", type=int, default=4)
+  parser.add_argument("--output-dir", type=Path, default=Path("runs"))
+  parser.add_argument("--dry-run", action="store_true")
+  arguments = parser.parse_args()
+
+  if not 1 <= arguments.batch_size <= 30:
+    raise ValueError("batch-size must be between 1 and 30")
+  if arguments.limit < 0:
+    raise ValueError("limit must be non-negative")
+
+  knowledge_base_ids = [int(value) for value in arguments.knowledge_base_ids.split(",") if value.strip()]
+  cases = [case for case in read_jsonl(arguments.dataset) if case["answerable"]]
+  if arguments.limit:
+    cases = cases[:arguments.limit]
+  if not cases:
+    raise ValueError("没有可回答的 Gold 样本")
+
+  output_dir = arguments.output_dir / datetime.now(timezone.utc).strftime("ragas-%Y%m%dT%H%M%SZ")
+  output_dir.mkdir(parents=True, exist_ok=False)
+  run_metadata = {
+    "dataset": str(arguments.dataset).replace("\\", "/"),
+    "caseCount": len(cases),
+    "knowledgeBaseIds": knowledge_base_ids,
+    "rewriteEnabled": arguments.rewrite,
+    "apiBaseUrl": arguments.api_base_url,
+    "judgeModel": arguments.judge_model,
+    "judgeBaseUrl": arguments.judge_base_url,
+    "gitRevision": git_revision(),
+    "startedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+  }
+  (output_dir / "run.json").write_text(json.dumps(run_metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+  if arguments.dry_run:
+    print(json.dumps({"status": "DRY_RUN", **run_metadata}, ensure_ascii=False))
+    return 0
+
+  answer_items: list[dict[str, Any]] = []
+  for batch in chunked(cases, arguments.batch_size):
+    response = post_json(
+      f"{arguments.api_base_url.rstrip('/')}/api/knowledgebase/evaluation/answers",
+      {
+        "queries": [
+          {"knowledgeBaseIds": knowledge_base_ids, "question": case["question"]}
+          for case in batch
+        ],
+        "rewrite": arguments.rewrite,
+      },
+      arguments.request_timeout,
+    )
+    if len(response.get("items", [])) != len(batch):
+      raise RuntimeError("评测回答接口返回的样本数量不匹配")
+    answer_items.extend(response["items"])
+
+  raw_rows = []
+  ragas_rows = []
+  for case, answer_item in zip(cases, answer_items, strict=True):
+    evidence = answer_item.get("evidence", [])
+    retrieved_contexts = [item["content"] for item in evidence if item.get("content")]
+    raw_rows.append({"case": case, "answerItem": answer_item})
+    ragas_rows.append({
+      "caseId": case["id"],
+      "category": case["category"],
+      "user_input": case["question"],
+      "retrieved_contexts": retrieved_contexts,
+      "retrieved_context_ids": [context_id(item) for item in evidence],
+      "reference": case["referenceAnswer"],
+      "reference_context_ids": [
+        f"{item['documentSha256']}:{item['chunkIndex']}" for item in case["expectedChunkRefs"]
+      ],
+      "response": answer_item["answer"],
+    })
+  (output_dir / "answers.jsonl").write_text(
+    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in raw_rows), encoding="utf-8"
+  )
+  (output_dir / "ragas-input.jsonl").write_text(
+    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in ragas_rows), encoding="utf-8"
+  )
+
+  api_key = os.getenv(arguments.judge_api_key_env)
+  if not api_key:
+    raise RuntimeError(f"未设置评审模型密钥环境变量: {arguments.judge_api_key_env}")
+  try:
+    from openai import OpenAI
+    from ragas import evaluate
+    from ragas.dataset_schema import EvaluationDataset, SingleTurnSample
+    from ragas.llms import llm_factory
+    from ragas.metrics import ContextPrecision, ContextRecall, Faithfulness
+    from ragas.run_config import RunConfig
+  except ImportError as error:
+    raise RuntimeError("缺少 RAGAS 依赖，请先安装 requirements-ragas.txt") from error
+
+  samples = [
+    SingleTurnSample(
+      user_input=row["user_input"],
+      retrieved_contexts=row["retrieved_contexts"],
+      retrieved_context_ids=row["retrieved_context_ids"],
+      reference=row["reference"],
+      reference_context_ids=row["reference_context_ids"],
+      response=row["response"],
+    )
+    for row in ragas_rows
+  ]
+  judge = llm_factory(
+    arguments.judge_model,
+    provider="openai",
+    client=OpenAI(api_key=api_key, base_url=arguments.judge_base_url),
+    temperature=0,
+  )
+  result = evaluate(
+    EvaluationDataset(samples=samples),
+    metrics=[Faithfulness(), ContextPrecision(), ContextRecall()],
+    llm=judge,
+    run_config=RunConfig(
+      timeout=arguments.judge_timeout,
+      max_retries=2,
+      max_workers=arguments.judge_workers,
+      seed=20260815,
+    ),
+    raise_exceptions=False,
+    show_progress=True,
+    experiment_name="rehevo-ragas-gold",
+  )
+  score_rows = [
+    {"caseId": ragas_rows[index]["caseId"], "category": ragas_rows[index]["category"], **score}
+    for index, score in enumerate(result.scores)
+  ]
+  summary = {
+    "scores": {
+      metric: finite_mean([row.get(metric) for row in score_rows])
+      for metric in ("faithfulness", "context_precision", "context_recall")
+    },
+    "scoredCases": len(score_rows),
+    "completedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+  }
+  (output_dir / "ragas-scores.jsonl").write_text(
+    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in score_rows), encoding="utf-8"
+  )
+  (output_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+  print(json.dumps({"outputDir": str(output_dir), **summary}, ensure_ascii=False))
+  return 0
+
+
+if __name__ == "__main__":
+  raise SystemExit(main())

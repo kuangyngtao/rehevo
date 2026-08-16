@@ -1,3 +1,4 @@
 data/local/
 runs/
 rehevo-gold-v1.local.jsonl
+__pycache__/

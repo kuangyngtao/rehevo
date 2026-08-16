@@ -5,6 +5,8 @@ import interview.guide.common.ai.PromptSecurityConstants;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
 import interview.guide.common.metrics.ApplicationMetrics;
+import interview.guide.modules.knowledgebase.model.AnswerEvaluationRequest;
+import interview.guide.modules.knowledgebase.model.AnswerEvaluationResponse;
 import interview.guide.modules.knowledgebase.model.QueryRequest;
 import interview.guide.modules.knowledgebase.model.QueryResponse;
 import interview.guide.modules.knowledgebase.model.RetrievalEvaluationRequest;
@@ -126,6 +128,14 @@ public class KnowledgeBaseQueryService {
     }
 
     private SyncQueryResult executeSyncQuery(List<Long> knowledgeBaseIds, String question) {
+        return executeSyncQuery(knowledgeBaseIds, question, true, true);
+    }
+
+    private SyncQueryResult executeSyncQuery(
+            List<Long> knowledgeBaseIds,
+            String question,
+            boolean countQuestion,
+            boolean useRewrite) {
         long startNanos = System.nanoTime();
         log.info("收到知识库提问: kbIds={}, question={}", knowledgeBaseIds, question);
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || normalizeQuestion(question).isBlank()) {
@@ -135,9 +145,11 @@ public class KnowledgeBaseQueryService {
             return new SyncQueryResult(NO_RESULT_RESPONSE, RetrievalResult.empty());
         }
 
-        countService.updateQuestionCounts(knowledgeBaseIds);
+        if (countQuestion) {
+            countService.updateQuestionCounts(knowledgeBaseIds);
+        }
 
-        QueryContext queryContext = buildQueryContext(question, List.of());
+        QueryContext queryContext = buildQueryContext(question, List.of(), useRewrite);
         RetrievalResult retrievalResult = retrieveRelevantDocs(queryContext, knowledgeBaseIds);
         List<Document> relevantDocs = retrievalResult.documents();
 
@@ -235,6 +247,26 @@ public class KnowledgeBaseQueryService {
             })
             .toList();
         return new RetrievalEvaluationResponse(items);
+    }
+
+    /**
+     * 执行完整回答链路并返回未截断的检索片段，供独立 RAGAS 运行器离线评分。
+     */
+    public AnswerEvaluationResponse evaluateAnswers(AnswerEvaluationRequest request) {
+        List<AnswerEvaluationResponse.AnswerEvaluationItem> items = request.queries().stream()
+            .map(query -> {
+                SyncQueryResult result = executeSyncQuery(
+                    query.knowledgeBaseIds(), query.question(), false, request.useRewrite()
+                );
+                return new AnswerEvaluationResponse.AnswerEvaluationItem(
+                    query.question(),
+                    result.retrievalResult().query(),
+                    result.answer(),
+                    buildEvaluationEvidence(result.retrievalResult().documents())
+                );
+            })
+            .toList();
+        return new AnswerEvaluationResponse(items);
     }
 
     /**
@@ -401,6 +433,32 @@ public class KnowledgeBaseQueryService {
                     parseIntegerMetadata(document, "chunk_index"),
                     document.getScore(),
                     abbreviate(document.getText(), EVIDENCE_PREVIEW_MAX_CHARS)
+                );
+            })
+            .toList();
+    }
+
+    private List<AnswerEvaluationResponse.RetrievalEvidence> buildEvaluationEvidence(List<Document> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> knowledgeBaseIds = documents.stream()
+            .map(document -> parseLongMetadata(document, "kb_id"))
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toSet());
+        Map<Long, String> documentHashes = knowledgeBaseRepository.findAllById(knowledgeBaseIds).stream()
+            .collect(Collectors.toMap(KnowledgeBaseEntity::getId, KnowledgeBaseEntity::getFileHash));
+
+        return documents.stream()
+            .map(document -> {
+                Long knowledgeBaseId = parseLongMetadata(document, "kb_id");
+                return new AnswerEvaluationResponse.RetrievalEvidence(
+                    document.getId(),
+                    knowledgeBaseId,
+                    knowledgeBaseId == null ? null : documentHashes.get(knowledgeBaseId),
+                    parseIntegerMetadata(document, "chunk_index"),
+                    document.getScore(),
+                    document.getText()
                 );
             })
             .toList();

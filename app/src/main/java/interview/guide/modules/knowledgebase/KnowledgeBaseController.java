@@ -2,6 +2,8 @@ package interview.guide.modules.knowledgebase;
 
 import interview.guide.common.annotation.RateLimit;
 import interview.guide.common.result.Result;
+import interview.guide.modules.knowledgebase.model.AnswerEvaluationRequest;
+import interview.guide.modules.knowledgebase.model.AnswerEvaluationResponse;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseListItemDTO;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseStatsDTO;
 import interview.guide.modules.knowledgebase.model.QueryRequest;
@@ -108,6 +110,17 @@ public class KnowledgeBaseController {
     public Result<RetrievalEvaluationResponse> evaluateRetrieval(
             @Valid @RequestBody RetrievalEvaluationRequest request) {
         return Result.success(queryService.evaluateRetrieval(request));
+    }
+
+    /**
+     * 固定测评集的批量回答入口：返回实际回答和完整检索片段，不增加用户提问计数。
+     */
+    @PostMapping("/api/knowledgebase/evaluation/answers")
+    @RateLimit(dimension = RateLimit.Dimension.GLOBAL, count = 2)
+    @RateLimit(dimension = RateLimit.Dimension.IP, count = 2)
+    public Result<AnswerEvaluationResponse> evaluateAnswers(
+            @Valid @RequestBody AnswerEvaluationRequest request) {
+        return Result.success(queryService.evaluateAnswers(request));
     }
 
     /**
