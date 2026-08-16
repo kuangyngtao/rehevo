@@ -72,6 +72,11 @@ def main() -> int:
   parser.add_argument("--dataset", type=Path, default=Path("rehevo-gold-v1.jsonl"))
   parser.add_argument("--knowledge-base-ids", default="2,3,4,5,6,7")
   parser.add_argument("--api-base-url", default="http://localhost:8080")
+  parser.add_argument(
+    "--answer-model",
+    default="",
+    help="记录本次 Rehevo 默认回答模型 ID；用于冻结实验条件，不改变服务端配置",
+  )
   parser.add_argument("--rewrite", action="store_true", help="评测 Query Rewrite + 向量检索；默认关闭以匹配当前检索基线")
   parser.add_argument(
     "--retrieval-mode",
@@ -133,6 +138,7 @@ def main() -> int:
     "rewriteEnabled": arguments.rewrite,
     "retrievalMode": arguments.retrieval_mode,
     "apiBaseUrl": arguments.api_base_url,
+    "answerModel": arguments.answer_model,
     "judgeModel": arguments.judge_model,
     "judgeBaseUrl": arguments.judge_base_url,
     "gitRevision": git_revision(),
@@ -143,7 +149,7 @@ def main() -> int:
     existing_metadata = json.loads(run_path.read_text(encoding="utf-8"))
     comparable_fields = (
       "dataset", "caseCount", "caseIds", "knowledgeBaseIds", "rewriteEnabled",
-      "retrievalMode", "apiBaseUrl",
+      "retrievalMode", "apiBaseUrl", "answerModel",
     )
     mismatches = [
       field for field in comparable_fields if existing_metadata.get(field) != run_metadata.get(field)

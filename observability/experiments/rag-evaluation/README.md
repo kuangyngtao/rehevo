@@ -104,6 +104,7 @@ python .\run-ragas-evaluation.py `
   --dataset .\rehevo-gold-v1.jsonl `
   --knowledge-base-ids 2,3,4,5,6,7 `
   --retrieval-mode HYBRID --batch-size 5 --answers-only `
+  --answer-model qwen3.7-flash-2026-07-15 `
   --run-dir .\runs\ragas-faithfulness-full
 ```
 

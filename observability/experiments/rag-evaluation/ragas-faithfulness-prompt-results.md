@@ -25,6 +25,8 @@ H1 Gold v1 全量基线的 Context Recall 已达到 1.0000，Faithfulness 的主
 
 ## 完整回归状态与结论边界
 
-随后启动了相同条件下的 45 条完整回归。运行至第三批时，回答服务返回 DashScope `403 Free quota exhausted`，因此没有形成完整的新 Prompt 全量分数，本次不能声称 45 条总体 Faithfulness 已提升。
+首次启动相同条件下的 45 条完整回归时，回答服务在第三批返回 DashScope `403 Free quota exhausted`。百炼将 `qwen3.7-flash` 别名和 `qwen3.7-flash-2026-07-15` 快照视为两个独立免费额度池，因此后续将回答模型切换为仍有额度的日期快照，并从头生成新 run，避免混合两个模型的回答。
 
-这次中断同时暴露出回答采样只在全部完成后落盘的问题。运行器现已支持 `--run-dir`：每批持久化回答，续跑前校验数据集、case ID 和检索配置；同配置两次 dry-run 的续跑契约已通过。额度恢复后应使用固定目录、较小批次完成 45 条回答，再用 `score-ragas-input.py` 断点评分。只有完整 45 条 Faithfulness 高于 0.9325，且 Context Precision 不低于 0.9852、Context Recall 保持 1.0000，才能把本轮写成全量质量提升。
+日期快照 run 位于被 Git 忽略的 `runs/ragas-faithfulness-full-snapshot-20260816/`：45/45 条回答已落盘，回答模型 ID 已冻结为 `qwen3.7-flash-2026-07-15`。RAGAS 使用原评审器 `qwen-plus` 完成 39/45 后，阿里云返回 `Arrearage` 并阻止包括免费快照在内的所有模型调用。当前 39 条部分均值为 Faithfulness 0.9661、Context Precision 0.9829、Context Recall 1.0000；部分均值不能替代全量结论。
+
+这次中断同时暴露出回答采样只在全部完成后落盘的问题。运行器现已支持 `--run-dir`：每批持久化回答，续跑前校验数据集、case ID、回答模型和检索配置；同配置两次 dry-run 的续跑契约已通过。账号恢复正常后只需对同一 `ragas-input.jsonl` 重跑 `score-ragas-input.py`，评分器会跳过 39 条有限值并补齐剩余 6 条。由于完整基线使用 `qwen3.7-flash` 别名，新 run 更换了回答模型 ID，即使能力对应同一快照，也应把结果标注为“日期快照全量结果”，不能包装成严格的 Prompt 单变量对照。
