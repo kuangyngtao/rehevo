@@ -99,6 +99,17 @@ $env:RAGAS_JUDGE_API_KEY = $env:ALI-API-KEY # 仅复制到当前终端，不打�
 
 首批指标为 `faithfulness`、`context_precision`、`context_recall`。它们分别检验回答是否由实际片段支撑、排序靠前的片段是否有用、金标答案所需事实是否被召回。不可回答题不进入这三项 RAGAS 均值，仍以“正确拒答且不伪造引用”单独统计。
 
+RAGAS 0.4.3 与 `langchain-community` 0.4.x 存在导入兼容问题，离线 requirements 固定使用 `langchain-community==0.3.31`。全量评审存在长尾时，先让主运行器生成 `answers.jsonl` 和 `ragas-input.jsonl`，再使用可恢复评分器每批落盘：
+
+```powershell
+$env:RAGAS_JUDGE_API_KEY = $env:ALI-API-KEY
+.\data\local\ragas-venv\Scripts\python.exe .\score-ragas-input.py `
+  --input .\runs\<run-id>\ragas-input.jsonl `
+  --batch-size 10 --max-batches 1 --judge-max-tokens 8192
+```
+
+重复相同命令会跳过三项指标均有效的 caseId，只重试缺失或 NaN 样本，并按 caseId 替换旧行。Gold v1 的第一组 H1 全量结果见 [ragas-h1-gold-v1-results.md](ragas-h1-gold-v1-results.md)。
+
 ## 通过门槛
 
 在未取得基线前不预设“提升百分比”。目标方案只有同时满足以下条件才可作为优化结论：

@@ -81,6 +81,7 @@ def main() -> int:
   parser.add_argument("--judge-model", default="qwen-plus")
   parser.add_argument("--judge-timeout", type=int, default=120)
   parser.add_argument("--judge-workers", type=int, default=4)
+  parser.add_argument("--judge-max-tokens", type=int, default=8192)
   parser.add_argument("--output-dir", type=Path, default=Path("runs"))
   parser.add_argument("--dry-run", action="store_true")
   arguments = parser.parse_args()
@@ -189,6 +190,7 @@ def main() -> int:
     provider="openai",
     client=OpenAI(api_key=api_key, base_url=arguments.judge_base_url),
     temperature=0,
+    max_tokens=arguments.judge_max_tokens,
   )
   result = evaluate(
     EvaluationDataset(samples=samples),
