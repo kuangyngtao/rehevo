@@ -1,0 +1,51 @@
+{
+  "evaluationEvent": "hard-v2-test-20260816-1901",
+  "evaluatedGitRevision": "1098927",
+  "frozenConfig": "h2-rerank-frozen-config.json",
+  "dataset": "rehevo-gold-v2-hard-test.jsonl",
+  "cases": 20,
+  "rewriteEnabled": false,
+  "results": {
+    "VECTOR": {
+      "recallAt5": 0.9666666666666667,
+      "mrrAt10": 1.0,
+      "ndcgAt10": 0.9771314112433546,
+      "unanswerableEmptyEvidenceRate": 0.0,
+      "averageDurationPerQueryMs": 386.5
+    },
+    "HYBRID": {
+      "recallAt5": 1.0,
+      "mrrAt10": 1.0,
+      "ndcgAt10": 0.984671046312196,
+      "unanswerableEmptyEvidenceRate": 0.0,
+      "averageDurationPerQueryMs": 366.1
+    },
+    "HYBRID_RERANK": {
+      "recallAt5": 1.0,
+      "mrrAt10": 0.9666666666666667,
+      "ndcgAt10": 0.9742098128510306,
+      "unanswerableEmptyEvidenceRate": 0.0,
+      "averageDurationPerQueryMs": 1112.2
+    }
+  },
+  "h2VersusH1": {
+    "recallAt5Delta": 0.0,
+    "mrrAt10Delta": -0.0333333333333333,
+    "ndcgAt10Delta": -0.0104612334611654,
+    "averageDurationPerQueryDeltaMs": 746.1
+  },
+  "rerankLatencyObservation": {
+    "successfulCallsAfterRestart": 81,
+    "averageMs": 729.81,
+    "maxMs": 3108.4
+  },
+  "failureSlice": {
+    "id": "rehevo-gold-v2-hard-008",
+    "effect": "first relevant evidence moved from rank 1 to rank 2",
+    "h1MrrAt10": 1.0,
+    "h2MrrAt10": 0.5,
+    "h1NdcgAt10": 0.9197207891481877,
+    "h2NdcgAt10": 0.6934264036172708
+  },
+  "decision": "Keep HYBRID as the default retrieval mode. Do not claim or enable H2 as a quality optimization on this contract."
+}
