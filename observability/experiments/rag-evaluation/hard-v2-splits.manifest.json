@@ -1,0 +1,45 @@
+{
+  "version": "hard-v2-stratified-alternating-v1",
+  "rule": "sort each category by id; odd position -> dev; even position -> test",
+  "source": {
+    "path": "rehevo-gold-v2-hard.jsonl",
+    "sha256": "6bac4541ea5b1d5e4648ae81439326e424658ed890f8d76b77bee03841d11b0b",
+    "gitRevision": "e4f3739e3da99234837aecb5f94be2bcf563c1f2"
+  },
+  "dev": {
+    "path": "rehevo-gold-v2-hard-dev.jsonl",
+    "sha256": "87e2aa5d592f4b2fece1975b0cc949811a80ce7cb99f3ed80e411f67fe50cf12",
+    "cases": 20,
+    "answerable": 15,
+    "unanswerable": 5,
+    "categories": {
+      "boundary_refusal": 5,
+      "constraint_reasoning": 5,
+      "cross_document": 5,
+      "distractor_disambiguation": 5
+    }
+  },
+  "test": {
+    "path": "rehevo-gold-v2-hard-test.jsonl",
+    "sha256": "d5765f340e77fb22028f99a5b512626020deb8e659e4a80465e64a0390572e92",
+    "cases": 20,
+    "answerable": 15,
+    "unanswerable": 5,
+    "categories": {
+      "boundary_refusal": 5,
+      "constraint_reasoning": 5,
+      "cross_document": 5,
+      "distractor_disambiguation": 5
+    }
+  },
+  "contract": {
+    "tuneOn": "dev",
+    "evaluateOnceOn": "test",
+    "rewriteDefault": false,
+    "primaryMetrics": [
+      "Recall@5",
+      "MRR@10",
+      "nDCG@10"
+    ]
+  }
+}

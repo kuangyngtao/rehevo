@@ -5,7 +5,7 @@
   "required": ["id", "split", "category", "question", "answerable", "expectedChunkRefs", "referenceAnswer", "sourceDocumentHashes", "reviewStatus"],
   "properties": {
     "id": {"type": "string", "pattern": "^rehevo-gold-v2-hard-[0-9]{3}$"},
-    "split": {"const": "test"},
+    "split": {"enum": ["dev", "test"]},
     "category": {"enum": ["cross_document", "constraint_reasoning", "distractor_disambiguation", "boundary_refusal"]},
     "question": {"type": "string", "minLength": 2},
     "answerable": {"type": "boolean"},

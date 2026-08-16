@@ -65,6 +65,16 @@ python .\prepare-gold-v2-hard.py
 
 运行前必须把这 12 份卡片上传到**独立**知识库，待向量化完成后核对每个文件 SHA-256 与 `chunkIndex=0`。若当前分块参数将任一文件拆成多个 Chunk，先更新清单和 Gold 引用，再建立新基线；不能沿用旧引用硬跑。v2-hard 只用于诊断相对变化，不能与 v1 的分数混合成单一“总分”。
 
+### v2-hard 的 dev/test 契约
+
+运行 `freeze-hard-v2-splits.py` 会按类别和 ID 交替冻结两个等量子集，并生成 `hard-v2-splits.manifest.json`：
+
+- `rehevo-gold-v2-hard-dev.jsonl`：20 条，只用于选择融合权重、重排指令和候选数量；
+- `rehevo-gold-v2-hard-test.jsonl`：20 条，只在方案冻结后运行一次；
+- 两边均为四类各 5 条，其中 15 条可回答、5 条不可回答。
+
+清单同时锁定源文件、dev 和 test 的 SHA-256。后续调整 H2 时只能查看 dev 汇总和逐题结果，不得根据 test 失败样本再次修改参数后沿用同一 test 分数。由于 H1 的 3:1 权重曾观察过完整 v2-hard，当前切分只对尚未调参的 H2 构成前瞻契约，不能追溯性地把 H1 test 分数包装成盲测结果。
+
 ## 固定运行条件
 
 - 运行前固定知识库版本：记录每个文档 SHA-256、Chunk 参数、Embedding 模型和向量库状态。
