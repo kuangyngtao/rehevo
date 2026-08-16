@@ -8,6 +8,7 @@
 | --- | --- | --- | --- |
 | 外部回归 | T2Ranking 开发集的 200 条固定抽样 | 验证中文候选排序和 Cross-Encoder 重排是否退化 | 不能代表 Rehevo 的求职问答效果 |
 | 领域金标 | Rehevo Gold v1，目标 60 条 | 验证混合召回、RRF、重排、引用和回答忠实度 | 项目量化成果只引用这一层的端到端结果 |
+| 高难诊断 | Rehevo Gold v2-hard，40 条 | 验证跨文档约束、术语干扰、边界拒答与证据链 | 仅在 12 份配套语料和 Chunk 校验完成后使用 |
 | 冒烟样本 | Orchid-417 的 3 条验收问题 | 检查上传、向量化、查询和指标链路 | 不计入任何质量指标 |
 
 T2Ranking 的数据与代码采用 Apache-2.0；完整集体积较大，不纳入仓库。下载、筛选后只将 `qid` 清单、源版本和文件校验值写入 `external/t2ranking-200.manifest.json`。原始数据放在本机忽略目录 `data/local/`。
@@ -37,6 +38,21 @@ python .\import-t2ranking-dev-sample.py
 当前已提交的 Gold v1 是**公开资料控制集**：6 份经中文归纳的官方后端技术学习卡片、60 条人工复核题（四类各 15 条）。该语料用于验证评测链路和算法相对变化；以后接入用户真实知识库时，必须新建独立 Gold 版本，不能把两类结论混合。
 
 第一组纯向量检索基线及其适用边界见 [baseline-results.md](baseline-results.md)。
+
+## Gold v2-hard：扩充难例与干扰语料
+
+`prepare-gold-v2-hard.py` 会在被忽略的 `data/local/backend-interview-kb-v2-hard/` 中生成 12 份中文公开资料学习卡片，并更新：
+
+- `hard-v2-corpus.manifest.json`：每个文档的来源 URL、SHA-256 与预期 Chunk 编号；
+- `rehevo-gold-v2-hard.jsonl`：40 条固定样本，四类各 10 条：跨文档、条件推理、术语干扰、边界拒答；
+- `schema-v2-hard.json`：独立的 v2 数据契约。
+
+```powershell
+cd observability/experiments/rag-evaluation
+python .\prepare-gold-v2-hard.py
+```
+
+运行前必须把这 12 份卡片上传到**独立**知识库，待向量化完成后核对每个文件 SHA-256 与 `chunkIndex=0`。若当前分块参数将任一文件拆成多个 Chunk，先更新清单和 Gold 引用，再建立新基线；不能沿用旧引用硬跑。v2-hard 只用于诊断相对变化，不能与 v1 的分数混合成单一“总分”。
 
 ## 固定运行条件
 

@@ -1,0 +1,77 @@
+{
+  "version": "v2-hard",
+  "documents": [
+    {
+      "filename": "01-transaction-propagation.md",
+      "sha256": "4c1f69580d79fdd75c3d61e68f3934624b50bbfbb5f60470df8630c71f84b0cc",
+      "source": "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-propagation.html",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "02-transaction-rollback-rules.md",
+      "sha256": "f181f58b6e1e6304bcd0db5d4ec5368ff7db6f360a1823a905eae21ae5e1149b",
+      "source": "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/rolling-back.html",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "03-transaction-proxy-boundary.md",
+      "sha256": "055c1cd844a42e88a54aee662ea60af82cb5a82815c2b5890ce3a838f13543eb",
+      "source": "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "04-redis-xreadgroup.md",
+      "sha256": "8190e854a437d7ecd9bcc4afff98ea0d768fb591f5c34587c9f02a7694ade3ef",
+      "source": "https://redis.io/docs/latest/commands/xreadgroup/",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "05-redis-pending-claim.md",
+      "sha256": "d1d865921ca4fd6393c98083cb0c1c8f7b217d84ccd523973763f1960f477bae",
+      "source": "https://redis.io/docs/latest/commands/xpending/\nhttps://redis.io/docs/latest/commands/xautoclaim/",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "06-redis-ack-idempotency.md",
+      "sha256": "b5608150e2432871bd049c15e28cf6f0611df6be3bc726140c2d60c30765d7ca",
+      "source": "https://redis.io/docs/latest/commands/xack/",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "07-spring-ai-query-transform.md",
+      "sha256": "406e45d94eca84409c6b1aecbec59cb793f6789e3d8efb5c3ccf9019cdad76ed",
+      "source": "https://docs.spring.io/spring-ai/reference/api/retrieval-augmented-generation.html",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "08-spring-ai-post-retrieval.md",
+      "sha256": "5b4190478efb9e17477665dd5f712ac27d6c63de10da2c7087d7a17548ed6802",
+      "source": "https://docs.spring.io/spring-ai/reference/api/retrieval-augmented-generation.html",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "09-pgvector-hnsw-filter.md",
+      "sha256": "d0cf19dc8d609ca90cfd3194814d1b17244056be74212dd300488a64fb8972ee",
+      "source": "https://github.com/pgvector/pgvector#filtering",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "10-pgvector-hybrid-rrf.md",
+      "sha256": "cb581b0e7223855dfa55c05522d3b67c8d5c392596831b0ba302963dd55153bb",
+      "source": "https://github.com/pgvector/pgvector#hybrid-search",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "11-ragas-faithfulness.md",
+      "sha256": "6cc8547861956a5212b5b46f9792e5b4693d682d0b166250369386acfc189d26",
+      "source": "https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/",
+      "chunkIndex": 0
+    },
+    {
+      "filename": "12-ragas-context-recall.md",
+      "sha256": "187199bce14c8d24498a9d9ac3984d3503959583ca95674c0c7d2d7278b6be81",
+      "source": "https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/",
+      "chunkIndex": 0
+    }
+  ]
+}
