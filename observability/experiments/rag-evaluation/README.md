@@ -40,6 +40,16 @@ python .\import-t2ranking-dev-sample.py
 第一组纯向量检索基线及其适用边界见 [baseline-results.md](baseline-results.md)。
 Gold v2-hard 的独立基线与失败样本见 [hard-v2-baseline-results.md](hard-v2-baseline-results.md)。
 
+检索消融通过同一接口显式选择模式，无需重启服务：
+
+```powershell
+.\run-retrieval-baseline.ps1 -DisableRewrite -RetrievalMode VECTOR
+.\run-retrieval-baseline.ps1 -DisableRewrite -RetrievalMode HYBRID
+.\run-retrieval-baseline.ps1 -DisableRewrite -RetrievalMode HYBRID_RERANK
+```
+
+`HYBRID_RERANK` 需要 `APP_AI_RAG_RERANK_ENABLED=true`、`DASHSCOPE_WORKSPACE_ID` 和百炼 API Key。原问题始终传给重排模型；Query Rewrite 只控制第一阶段候选召回，并作为独立变量记录。
+
 ## Gold v2-hard：扩充难例与干扰语料
 
 `prepare-gold-v2-hard.py` 会在被忽略的 `data/local/backend-interview-kb-v2-hard/` 中生成 12 份中文公开资料学习卡片，并更新：
