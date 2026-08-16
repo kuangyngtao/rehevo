@@ -3,6 +3,7 @@ package interview.guide.modules.knowledgebase.model;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
+import interview.guide.modules.knowledgebase.service.RetrievalMode;
 
 import java.util.List;
 
@@ -13,7 +14,8 @@ public record AnswerEvaluationRequest(
     @NotEmpty(message = "至少提供一个评测问题")
     @Size(max = 30, message = "单次最多评测30个问题")
     List<@Valid QueryRequest> queries,
-    Boolean rewrite
+    Boolean rewrite,
+    RetrievalMode retrievalMode
 ) {
     public boolean useRewrite() {
         return rewrite == null || rewrite;

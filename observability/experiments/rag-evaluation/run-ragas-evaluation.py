@@ -67,6 +67,12 @@ def main() -> int:
   parser.add_argument("--knowledge-base-ids", default="2,3,4,5,6,7")
   parser.add_argument("--api-base-url", default="http://localhost:8080")
   parser.add_argument("--rewrite", action="store_true", help="评测 Query Rewrite + 向量检索；默认关闭以匹配当前检索基线")
+  parser.add_argument(
+    "--retrieval-mode",
+    choices=("VECTOR", "HYBRID", "HYBRID_RERANK"),
+    default="VECTOR",
+    help="固定本次回答评测使用的检索链路",
+  )
   parser.add_argument("--limit", type=int, default=0, help="最多运行多少条可回答样本，0 表示全部")
   parser.add_argument("--batch-size", type=int, default=30)
   parser.add_argument("--request-timeout", type=int, default=1800)
@@ -98,6 +104,7 @@ def main() -> int:
     "caseCount": len(cases),
     "knowledgeBaseIds": knowledge_base_ids,
     "rewriteEnabled": arguments.rewrite,
+    "retrievalMode": arguments.retrieval_mode,
     "apiBaseUrl": arguments.api_base_url,
     "judgeModel": arguments.judge_model,
     "judgeBaseUrl": arguments.judge_base_url,
@@ -120,6 +127,7 @@ def main() -> int:
           for case in batch
         ],
         "rewrite": arguments.rewrite,
+        "retrievalMode": arguments.retrieval_mode,
       },
       arguments.request_timeout,
     )

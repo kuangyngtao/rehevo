@@ -3,6 +3,8 @@ param(
   [string]$BaseUrl = 'http://localhost:8080',
   [int[]]$KnowledgeBaseIds = @(2, 3, 4, 5, 6, 7),
   [switch]$DisableRewrite,
+  [ValidateSet('VECTOR', 'HYBRID', 'HYBRID_RERANK')]
+  [string]$RetrievalMode = 'VECTOR',
   [string]$DatasetPath = '',
   [string]$OutputDirectory = ''
 )
@@ -31,7 +33,11 @@ if ($cases.Count -eq 0) {
 $requests = @($cases | ForEach-Object {
   @{ knowledgeBaseIds = @($KnowledgeBaseIds); question = $_.question }
 })
-$body = @{ queries = $requests; rewrite = (-not $DisableRewrite) } | ConvertTo-Json -Depth 6
+$body = @{
+  queries = $requests
+  rewrite = (-not $DisableRewrite)
+  retrievalMode = $RetrievalMode
+} | ConvertTo-Json -Depth 6
 $httpParameters = @{
   Uri = "$BaseUrl/api/knowledgebase/evaluation/retrieval"
   Method = 'Post'
@@ -39,7 +45,9 @@ $httpParameters = @{
   Body = [System.Text.Encoding]::UTF8.GetBytes($body)
   TimeoutSec = 600
 }
+$requestStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $response = Invoke-RestMethod @httpParameters
+$requestStopwatch.Stop()
 
 if (-not $response.success -or $null -eq $response.data.items) {
   throw "评测请求失败：$($response | ConvertTo-Json -Depth 5 -Compress)"
@@ -97,6 +105,9 @@ $summary = [pscustomobject]@{
   gitCommit = (git -C (Join-Path $PSScriptRoot '..\..\..') rev-parse HEAD).Trim()
   knowledgeBaseIds = @($KnowledgeBaseIds)
   rewriteEnabled = (-not $DisableRewrite)
+  retrievalMode = $RetrievalMode
+  requestDurationMs = $requestStopwatch.Elapsed.TotalMilliseconds
+  averageDurationPerQueryMs = $requestStopwatch.Elapsed.TotalMilliseconds / $cases.Count
   totalCases = $perCase.Count
   answerableCases = $answerable.Count
   unanswerableCases = $unanswerable.Count
@@ -107,7 +118,7 @@ $summary = [pscustomobject]@{
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-$mode = if ($DisableRewrite) { 'vector-only' } else { 'rewrite-vector' }
+$mode = "$($RetrievalMode.ToLower())-$(if ($DisableRewrite) { 'no-rewrite' } else { 'rewrite' })"
 $runPath = Join-Path $OutputDirectory ("retrieval-baseline-$mode-{0}.json" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 [pscustomobject]@{
   summary = $summary

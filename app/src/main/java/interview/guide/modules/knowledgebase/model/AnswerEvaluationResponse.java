@@ -21,6 +21,12 @@ public record AnswerEvaluationResponse(
         String documentSha256,
         Integer chunkIndex,
         Double similarityScore,
+        Integer vectorRank,
+        Integer lexicalRank,
+        Double rrfScore,
+        Double rerankScore,
+        Integer finalRank,
+        List<String> retrievalSources,
         String content
     ) {}
 }

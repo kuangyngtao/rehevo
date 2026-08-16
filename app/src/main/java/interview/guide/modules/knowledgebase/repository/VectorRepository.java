@@ -1,11 +1,18 @@
 package interview.guide.modules.knowledgebase.repository;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.document.Document;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 向量存储Repository
@@ -17,6 +24,53 @@ import org.springframework.stereotype.Repository;
 public class VectorRepository {
     
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+
+    public List<Document> lexicalSearch(String query, List<Long> knowledgeBaseIds, int topK) {
+        if (query == null || query.isBlank() || knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || topK <= 0) {
+            return List.of();
+        }
+        String placeholders = String.join(",", knowledgeBaseIds.stream().map(id -> "?").toList());
+        String sql = """
+            SELECT id::text, content, metadata::text, 1 - (? <<-> content) AS lexical_score
+            FROM vector_store
+            WHERE metadata->>'kb_id' IN (%s)
+            ORDER BY ? <<-> content, id
+            LIMIT ?
+            """.formatted(placeholders);
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(query);
+        knowledgeBaseIds.stream().map(String::valueOf).forEach(parameters::add);
+        parameters.add(query);
+        parameters.add(topK);
+        return jdbcTemplate.query(sql, (resultSet, rowNum) -> {
+            Map<String, Object> metadata = parseMetadata(resultSet.getString("metadata"));
+            double lexicalScore = resultSet.getDouble("lexical_score");
+            metadata.put("retrieval_lexical_score", lexicalScore);
+            return Document.builder()
+                .id(resultSet.getString("id"))
+                .text(resultSet.getString("content"))
+                .metadata(metadata)
+                .score(lexicalScore)
+                .build();
+        }, parameters.toArray());
+    }
+
+    private Map<String, Object> parseMetadata(String metadataJson) {
+        try {
+            return objectMapper.readValue(metadataJson, new TypeReference<>() {});
+        } catch (Exception e) {
+            throw new IllegalStateException("无法解析向量文档元数据", e);
+        }
+    }
+
+    public void initializeLexicalSearchSchema() {
+        jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+        jdbcTemplate.execute("""
+            CREATE INDEX IF NOT EXISTS vector_store_content_trgm_idx
+            ON vector_store USING GIST (content gist_trgm_ops(siglen=64))
+            """);
+    }
     
     /**
      * 删除指定知识库的所有向量数据

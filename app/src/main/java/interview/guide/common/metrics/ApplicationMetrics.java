@@ -61,6 +61,16 @@ public class ApplicationMetrics {
     increment(AppMetricNames.RAG_QUERY_REWRITE, statusTags(outcome));
   }
 
+  public void recordRagRetrievalStage(RetrievalStage stage, long elapsedNanos, int candidates, Outcome outcome) {
+    Tags tags = Tags.of(AppMetricNames.TAG_STAGE, stage.value(), AppMetricNames.TAG_STATUS, outcome.value());
+    increment(AppMetricNames.RAG_RETRIEVAL_STAGE_TOTAL, tags);
+    record(AppMetricNames.RAG_RETRIEVAL_STAGE, tags, elapsedNanos, TimeUnit.NANOSECONDS);
+    if (meterRegistry != null && outcome == Outcome.SUCCESS) {
+      meterRegistry.summary(AppMetricNames.RAG_RETRIEVAL_STAGE_CANDIDATES,
+          Tags.of(AppMetricNames.TAG_STAGE, stage.value())).record(Math.max(0, candidates));
+    }
+  }
+
   public void recordRagAnswer(long elapsedNanos, Interaction interaction, Outcome outcome) {
     Tags tags = Tags.of(AppMetricNames.TAG_STATUS, outcome.value(), AppMetricNames.TAG_INTERACTION, interaction.value());
     increment(AppMetricNames.RAG_ANSWER_TOTAL, tags);
@@ -201,6 +211,23 @@ public class ApplicationMetrics {
     private final String value;
 
     RetrievalPath(String value) {
+      this.value = value;
+    }
+
+    public String value() {
+      return value;
+    }
+  }
+
+  public enum RetrievalStage {
+    VECTOR("vector"),
+    LEXICAL("lexical"),
+    FUSION("fusion"),
+    RERANK("rerank");
+
+    private final String value;
+
+    RetrievalStage(String value) {
       this.value = value;
     }
 

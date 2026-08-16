@@ -65,6 +65,12 @@ export interface RetrievalEvidence {
   documentSha256: string | null;
   chunkIndex: number | null;
   similarityScore: number | null;
+  vectorRank: number | null;
+  lexicalRank: number | null;
+  rrfScore: number | null;
+  rerankScore: number | null;
+  finalRank: number | null;
+  retrievalSources: string[];
   contentPreview: string | null;
 }
 

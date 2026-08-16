@@ -49,7 +49,7 @@ public class KnowledgeBaseQueryService {
     private static final int EVIDENCE_PREVIEW_MAX_CHARS = 240;
 
     private final LlmProviderRegistry llmProviderRegistry;
-    private final KnowledgeBaseVectorService vectorService;
+    private final HybridRetrievalService retrievalService;
     private final KnowledgeBaseListService listService;
     private final KnowledgeBaseCountService countService;
     private final KnowledgeBaseRepository knowledgeBaseRepository;
@@ -64,10 +64,11 @@ public class KnowledgeBaseQueryService {
     private final int topkLong;
     private final double minScoreShort;
     private final double minScoreDefault;
+    private final RetrievalMode defaultRetrievalMode;
 
     public KnowledgeBaseQueryService(
             LlmProviderRegistry llmProviderRegistry,
-            KnowledgeBaseVectorService vectorService,
+            HybridRetrievalService retrievalService,
             KnowledgeBaseListService listService,
             KnowledgeBaseCountService countService,
             KnowledgeBaseRepository knowledgeBaseRepository,
@@ -75,7 +76,7 @@ public class KnowledgeBaseQueryService {
             KnowledgeBaseQueryProperties queryProperties,
             ResourceLoader resourceLoader) throws IOException {
         this.llmProviderRegistry = llmProviderRegistry;
-        this.vectorService = vectorService;
+        this.retrievalService = retrievalService;
         this.listService = listService;
         this.countService = countService;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
@@ -99,6 +100,7 @@ public class KnowledgeBaseQueryService {
         this.topkLong = queryProperties.getSearch().getTopkLong();
         this.minScoreShort = queryProperties.getSearch().getMinScoreShort();
         this.minScoreDefault = queryProperties.getSearch().getMinScoreDefault();
+        this.defaultRetrievalMode = queryProperties.getSearch().getMode();
     }
 
     private ChatClient getChatClient() {
@@ -136,6 +138,15 @@ public class KnowledgeBaseQueryService {
             String question,
             boolean countQuestion,
             boolean useRewrite) {
+        return executeSyncQuery(knowledgeBaseIds, question, countQuestion, useRewrite, defaultRetrievalMode);
+    }
+
+    private SyncQueryResult executeSyncQuery(
+            List<Long> knowledgeBaseIds,
+            String question,
+            boolean countQuestion,
+            boolean useRewrite,
+            RetrievalMode retrievalMode) {
         long startNanos = System.nanoTime();
         log.info("收到知识库提问: kbIds={}, question={}", knowledgeBaseIds, question);
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || normalizeQuestion(question).isBlank()) {
@@ -150,7 +161,7 @@ public class KnowledgeBaseQueryService {
         }
 
         QueryContext queryContext = buildQueryContext(question, List.of(), useRewrite);
-        RetrievalResult retrievalResult = retrieveRelevantDocs(queryContext, knowledgeBaseIds);
+        RetrievalResult retrievalResult = retrieveRelevantDocs(queryContext, knowledgeBaseIds, retrievalMode);
         List<Document> relevantDocs = retrievalResult.documents();
 
         if (!hasEffectiveHit(relevantDocs)) {
@@ -238,7 +249,9 @@ public class KnowledgeBaseQueryService {
         List<RetrievalEvaluationResponse.RetrievalEvaluationItem> items = request.queries().stream()
             .map(query -> {
                 QueryContext queryContext = buildQueryContext(query.question(), List.of(), request.useRewrite());
-                RetrievalResult retrievalResult = retrieveRelevantDocs(queryContext, query.knowledgeBaseIds());
+                RetrievalMode mode = request.retrievalMode() == null
+                    ? defaultRetrievalMode : request.retrievalMode();
+                RetrievalResult retrievalResult = retrieveRelevantDocs(queryContext, query.knowledgeBaseIds(), mode);
                 return new RetrievalEvaluationResponse.RetrievalEvaluationItem(
                     query.question(),
                     retrievalResult.query(),
@@ -256,7 +269,8 @@ public class KnowledgeBaseQueryService {
         List<AnswerEvaluationResponse.AnswerEvaluationItem> items = request.queries().stream()
             .map(query -> {
                 SyncQueryResult result = executeSyncQuery(
-                    query.knowledgeBaseIds(), query.question(), false, request.useRewrite()
+                    query.knowledgeBaseIds(), query.question(), false, request.useRewrite(),
+                    request.retrievalMode() == null ? defaultRetrievalMode : request.retrievalMode()
                 );
                 return new AnswerEvaluationResponse.AnswerEvaluationItem(
                     query.question(),
@@ -306,7 +320,8 @@ public class KnowledgeBaseQueryService {
             // 2. Query rewrite + 动态参数检索
             List<Message> effectiveHistory = sanitizeHistory(history);
             QueryContext queryContext = buildQueryContext(question, effectiveHistory);
-            List<Document> relevantDocs = retrieveRelevantDocs(queryContext, knowledgeBaseIds).documents();
+            List<Document> relevantDocs = retrieveRelevantDocs(
+                queryContext, knowledgeBaseIds, defaultRetrievalMode).documents();
 
             if (!hasEffectiveHit(relevantDocs)) {
                 applicationMetrics.recordRagAnswer(
@@ -394,17 +409,24 @@ public class KnowledgeBaseQueryService {
 
 //    向量检索
     private RetrievalResult retrieveRelevantDocs(QueryContext queryContext, List<Long> knowledgeBaseIds) {
+        return retrieveRelevantDocs(queryContext, knowledgeBaseIds, defaultRetrievalMode);
+    }
+
+    private RetrievalResult retrieveRelevantDocs(QueryContext queryContext, List<Long> knowledgeBaseIds,
+                                                  RetrievalMode retrievalMode) {
         for (String candidateQuery : queryContext.candidateQueries()) {
             if (candidateQuery.isBlank()) {
                 continue;
             }
-            List<Document> docs = vectorService.similaritySearch(
+            List<Document> docs = retrievalService.retrieve(
                 candidateQuery,
+                queryContext.originalQuestion(),
                 knowledgeBaseIds,
                 queryContext.searchParams().topK(),
-                queryContext.searchParams().minScore()
+                queryContext.searchParams().minScore(),
+                retrievalMode
             );
-            log.info("检索候选 query='{}'，命中 {} 条", candidateQuery, docs.size());
+            log.info("检索候选 query='{}'，mode={}，命中 {} 条", candidateQuery, retrievalMode, docs.size());
             if (hasEffectiveHit(docs)) {
                 return new RetrievalResult(candidateQuery, docs);
             }
@@ -431,7 +453,13 @@ public class KnowledgeBaseQueryService {
                     knowledgeBaseId,
                     knowledgeBaseId == null ? null : documentHashes.get(knowledgeBaseId),
                     parseIntegerMetadata(document, "chunk_index"),
-                    document.getScore(),
+                    retrievalSimilarityScore(document),
+                    parseIntegerMetadata(document, "retrieval_vector_rank"),
+                    parseIntegerMetadata(document, "retrieval_lexical_rank"),
+                    parseDoubleMetadata(document, "retrieval_rrf_score"),
+                    parseDoubleMetadata(document, "retrieval_rerank_score"),
+                    parseIntegerMetadata(document, "retrieval_final_rank"),
+                    parseStringListMetadata(document, "retrieval_sources"),
                     abbreviate(document.getText(), EVIDENCE_PREVIEW_MAX_CHARS)
                 );
             })
@@ -457,7 +485,13 @@ public class KnowledgeBaseQueryService {
                     knowledgeBaseId,
                     knowledgeBaseId == null ? null : documentHashes.get(knowledgeBaseId),
                     parseIntegerMetadata(document, "chunk_index"),
-                    document.getScore(),
+                    retrievalSimilarityScore(document),
+                    parseIntegerMetadata(document, "retrieval_vector_rank"),
+                    parseIntegerMetadata(document, "retrieval_lexical_rank"),
+                    parseDoubleMetadata(document, "retrieval_rrf_score"),
+                    parseDoubleMetadata(document, "retrieval_rerank_score"),
+                    parseIntegerMetadata(document, "retrieval_final_rank"),
+                    parseStringListMetadata(document, "retrieval_sources"),
                     document.getText()
                 );
             })
@@ -486,6 +520,31 @@ public class KnowledgeBaseQueryService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private Double parseDoubleMetadata(Document document, String key) {
+        Object value = document.getMetadata().get(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Double retrievalSimilarityScore(Document document) {
+        Double vectorScore = parseDoubleMetadata(document, "retrieval_vector_score");
+        return vectorScore == null ? document.getScore() : vectorScore;
+    }
+
+    private List<String> parseStringListMetadata(Document document, String key) {
+        Object value = document.getMetadata().get(key);
+        if (!(value instanceof List<?> values)) {
+            return List.of();
+        }
+        return values.stream().map(String::valueOf).toList();
     }
 
     private String abbreviate(String text, int maxChars) {

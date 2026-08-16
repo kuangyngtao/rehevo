@@ -162,14 +162,29 @@ app:
     structured-schema-validation-enabled: ${APP_AI_STRUCTURED_SCHEMA_VALIDATION_ENABLED:true}
     rag:
       rewrite:
-        enabled: ${APP_AI_RAG_REWRITE_ENABLED:true}
+        enabled: ${APP_AI_RAG_REWRITE_ENABLED:false}
       search:
+        mode: ${APP_AI_RAG_RETRIEVAL_MODE:HYBRID}
         short-query-length: ${APP_AI_RAG_SHORT_QUERY_LENGTH:4}
         topk-short: ${APP_AI_RAG_TOPK_SHORT:20}
         topk-medium: ${APP_AI_RAG_TOPK_MEDIUM:12}
         topk-long: ${APP_AI_RAG_TOPK_LONG:8}
         min-score-short: ${APP_AI_RAG_MIN_SCORE_SHORT:0.18}
         min-score-default: ${APP_AI_RAG_MIN_SCORE_DEFAULT:0.28}
+      hybrid:
+        vector-candidates: ${APP_AI_RAG_VECTOR_CANDIDATES:20}
+        lexical-candidates: ${APP_AI_RAG_LEXICAL_CANDIDATES:20}
+        fusion-candidates: ${APP_AI_RAG_FUSION_CANDIDATES:20}
+        rrf-k: ${APP_AI_RAG_RRF_K:60}
+        vector-weight: ${APP_AI_RAG_VECTOR_WEIGHT:3.0}
+        lexical-weight: ${APP_AI_RAG_LEXICAL_WEIGHT:1.0}
+        initialize-schema: ${APP_AI_RAG_INITIALIZE_LEXICAL_SCHEMA:true}
+      rerank:
+        enabled: ${APP_AI_RAG_RERANK_ENABLED:false}
+        workspace-id: ${DASHSCOPE_WORKSPACE_ID:}
+        api-key: ${AI_BAILIAN_API_KEY:${ALI-API-KEY:}}
+        model: ${APP_AI_RAG_RERANK_MODEL:qwen3-rerank}
+        instruct: ${APP_AI_RAG_RERANK_INSTRUCT:Given a web search query, retrieve relevant passages that answer the query.}
 
   interview:
     follow-up-count: ${APP_INTERVIEW_FOLLOW_UP_COUNT:1}

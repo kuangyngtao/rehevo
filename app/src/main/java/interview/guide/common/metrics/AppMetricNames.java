@@ -28,6 +28,9 @@ public final class AppMetricNames {
   public static final String RAG_RETRIEVAL_HITS = "app.rag.retrieval.hits";
   public static final String RAG_RETRIEVAL_NO_HIT = "app.rag.retrieval.no_hit";
   public static final String RAG_RETRIEVAL_FALLBACK = "app.rag.retrieval.fallback";
+  public static final String RAG_RETRIEVAL_STAGE = "app.rag.retrieval.stage";
+  public static final String RAG_RETRIEVAL_STAGE_TOTAL = "app.rag.retrieval.stage.total";
+  public static final String RAG_RETRIEVAL_STAGE_CANDIDATES = "app.rag.retrieval.stage.candidates";
   public static final String RAG_QUERY_REWRITE = "app.rag.query_rewrite";
   public static final String RAG_ANSWER = "app.rag.answer";
   public static final String RAG_ANSWER_TOTAL = "app.rag.answer.total";

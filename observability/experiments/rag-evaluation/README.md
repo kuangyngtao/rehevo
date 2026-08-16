@@ -72,7 +72,7 @@ cd observability/experiments/rag-evaluation
 python -m venv data/local/ragas-venv
 .\data\local\ragas-venv\Scripts\python.exe -m pip install -r requirements-ragas.txt --timeout 180 --retries 4
 $env:RAGAS_JUDGE_API_KEY = $env:ALI-API-KEY # 仅复制到当前终端，不打印、不写入文件
-.\data\local\ragas-venv\Scripts\python.exe .\run-ragas-evaluation.py --dry-run
+.\data\local\ragas-venv\Scripts\python.exe .\run-ragas-evaluation.py --dry-run --retrieval-mode VECTOR
 ```
 
 首轮只运行 Gold 的可回答样本，默认关闭 Query Rewrite，以便和现有纯向量基线的检索条件一致；使用 `--rewrite` 必须新建 run，不能覆盖基线。输出会保存完整回答、实际检索片段、单题得分和汇总到被忽略的 `runs/`。
