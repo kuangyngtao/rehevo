@@ -1,0 +1,46 @@
+{
+  "version": "h2-qwen3-rerank-v1",
+  "frozenOnGitRevision": "f33facfe45337682dafc1961af1e762cac72369c",
+  "datasetManifest": "hard-v2-splits.manifest.json",
+  "retrievalMode": "HYBRID_RERANK",
+  "rewriteEnabled": false,
+  "hybrid": {
+    "vectorCandidates": 20,
+    "lexicalCandidates": 20,
+    "fusionCandidates": 20,
+    "rrfK": 60,
+    "vectorWeight": 3.0,
+    "lexicalWeight": 1.0
+  },
+  "rerank": {
+    "provider": "Alibaba Cloud Model Studio",
+    "model": "qwen3-rerank",
+    "workspaceIdEnvironmentVariable": "DASHSCOPE_WORKSPACE_ID",
+    "queryText": "original question",
+    "topN": "dynamic service Top-K after fusion",
+    "instruct": "Given a web search query, retrieve relevant passages that answer the query."
+  },
+  "dev": {
+    "runs": 3,
+    "stable": true,
+    "cases": 20,
+    "recallAt5": 1.0,
+    "mrrAt10": 1.0,
+    "ndcgAt10": 0.984671046312196,
+    "unanswerableEmptyEvidenceRate": 0.0,
+    "baseline": {
+      "recallAt5": 1.0,
+      "mrrAt10": 0.9666666666666667,
+      "ndcgAt10": 0.96006636321696,
+      "unanswerableEmptyEvidenceRate": 0.0
+    }
+  },
+  "latencyObservation": {
+    "scope": "61 successful local smoke and dev queries after service restart",
+    "vectorAverageMs": 991.92,
+    "lexicalAverageMs": 2.32,
+    "fusionAverageMs": 0.11,
+    "rerankAverageMs": 790.24
+  },
+  "testPolicy": "Run rehevo-gold-v2-hard-test.jsonl exactly once after this file is committed; do not retune on test failures."
+}
