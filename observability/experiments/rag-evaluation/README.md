@@ -38,6 +38,7 @@ python .\import-t2ranking-dev-sample.py
 当前已提交的 Gold v1 是**公开资料控制集**：6 份经中文归纳的官方后端技术学习卡片、60 条人工复核题（四类各 15 条）。该语料用于验证评测链路和算法相对变化；以后接入用户真实知识库时，必须新建独立 Gold 版本，不能把两类结论混合。
 
 第一组纯向量检索基线及其适用边界见 [baseline-results.md](baseline-results.md)。
+Gold v2-hard 的独立基线与失败样本见 [hard-v2-baseline-results.md](hard-v2-baseline-results.md)。
 
 ## Gold v2-hard：扩充难例与干扰语料
 
